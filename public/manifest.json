@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "CodeSync",
+  "version": "0.2.0",
+  "description": "Organize accepted competitive programming submissions on GitHub.",
+  "permissions": ["storage", "identity", "alarms", "tabs", "scripting"],
+  "host_permissions": ["https://leetcode.com/*", "https://www.leetcode.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost:8787/*"],
+  "action": {"default_popup": "popup.html", "default_title": "CodeSync"},
+  "options_page": "options.html",
+  "background": {"service_worker": "assets/background.js", "type": "module"},
+  "content_scripts": [
+    {"matches": ["https://leetcode.com/*", "https://www.leetcode.com/*"], "js": ["assets/leetcode.js"]},
+    {"matches": ["https://codeforces.com/*"], "js": ["assets/codeforces.js"]},
+    {"matches": ["https://www.codechef.com/*", "https://codechef.com/*"], "js": ["assets/codechef.js"]},
+    {"matches": ["https://cses.fi/*"], "js": ["assets/cses.js"]},
+    {"matches": ["https://atcoder.jp/*"], "js": ["assets/atcoder.js"]}
+  ]
+}
