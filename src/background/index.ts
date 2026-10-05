@@ -1,7 +1,9 @@
 import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATUS, type Settings, type Submission } from '../lib/types';
 import { normalizeAuthorizationServer } from '../lib/github';
 import { GitHubRequestError, githubService, normalizeRepository } from '../lib/github';
-import { enqueueAcceptedSubmission, processQueue, retryFailedSubmissions, runConnectionTest } from './sync';
+import { enqueueAcceptedSubmission, processQueue, repairQueueLanguages, retryFailedSubmissions, runConnectionTest } from './sync';
+Object.assign(globalThis, { repairQueueLanguages });
+
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.local.get('settings');
   if (!current.settings) await chrome.storage.local.set({settings: DEFAULT_SETTINGS, syncStatus: DEFAULT_SYNC_STATUS});
@@ -21,6 +23,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     if (typed.type === 'CODESYNC_QUEUE_SUBMISSION' && typed.submission) { void enqueueAcceptedSubmission(typed.submission).then(sendResponse); return true; }
     if (typed.type === 'CODESYNC_RETRY_NOW') { void processQueue().then(() => sendResponse({ ok: true })); return true; }
     if (typed.type === 'CODESYNC_RETRY_FAILED_SUBMISSIONS') { void retryFailedSubmissions().then(result => sendResponse(result)).catch(error => sendResponse({ ok: false, message: error instanceof Error ? error.message : String(error) })); return true; }
+    if (typed.type === 'CODESYNC_REPAIR_CF_LANGUAGES' && typeof (message as Record<string, unknown>)['languages'] === 'object') { const langs = ((message as unknown) as { languages: Record<string, string> }).languages; void repairQueueLanguages(langs).then(result => sendResponse({ ok: true, ...result })).catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })); return true; }
     if (typed.type === 'CODESYNC_AUTH') { void authorize().then(sendResponse).catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })); return true; }
     if (typed.type === 'CODESYNC_AUTH_STATUS') { void checkAuthentication().then(sendResponse).catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })); return true; }
     if (typed.type === 'CODESYNC_LIST_REPOSITORIES') { void repositories().then(sendResponse).catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })); return true; }
