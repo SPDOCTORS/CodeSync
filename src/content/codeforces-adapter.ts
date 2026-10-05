@@ -67,16 +67,17 @@ export function acceptedIdsFromTable(table: Element): string[] {
 /**
  * Returns true when the current page pathname matches a known Codeforces
  * submissions-listing URL pattern.
- * Covers: /contest/<id>/my, /gym/<id>/my, /problemset/status/<handle>,
+ * Covers: /contest/<id>/my, /gym/<id>/my, /problemset/status, /problemset/status/<handle>,
  *         /submissions/<handle>, /profile/<handle>
  */
 export function isSubmissionsPage(pathname: string): boolean {
+  const clean = pathname.split('?')[0].split('#')[0];
   return (
-    /\/contest\/\d+\/my(\/|$)/.test(pathname) ||
-    /\/gym\/\d+\/my(\/|$)/.test(pathname) ||
-    /\/problemset\/status\//.test(pathname) ||
-    /\/submissions\//.test(pathname) ||
-    /\/profile\//.test(pathname)
+    /\/contest\/\d+\/my(\/|$)/.test(clean) ||
+    /\/gym\/\d+\/my(\/|$)/.test(clean) ||
+    /\/problemset\/status(\/|$)/.test(clean) ||
+    /\/submissions\//.test(clean) ||
+    /\/profile\//.test(clean)
   );
 }
 
@@ -124,6 +125,147 @@ export function sourceCodeFromHtml(html: string): string | null {
     const decoded = htmlDecode(pretty[1]).trim();
     return decoded || null;
   }
+  return null;
+}
+
+/**
+ * Extracts Codeforces CSRF token from the DOM document or an HTML string.
+ * Codeforces embeds the token in:
+ *   1. <meta name="X-Csrf-Token" content="...">
+ *   2. <span class="csrf-token" data-csrf="...">
+ *   3. <input type="hidden" name="csrf_token" value="...">
+ */
+export function extractCsrfToken(docOrHtml: Document | Element | string | null | undefined): string | null {
+  if (!docOrHtml) return null;
+
+  if (typeof docOrHtml === 'string') {
+    const metaMatch =
+      docOrHtml.match(/<meta[^>]+name=["']X-Csrf-Token["'][^>]+content=["']([a-f0-9]{32,})["']/i) ||
+      docOrHtml.match(/<meta[^>]+content=["']([a-f0-9]{32,})["'][^>]+name=["']X-Csrf-Token["']/i);
+    if (metaMatch?.[1]) return metaMatch[1];
+
+    const spanMatch =
+      docOrHtml.match(/<span[^>]+class=["'][^"']*csrf-token[^"']*["'][^>]+data-csrf=["']([a-f0-9]{32,})["']/i) ||
+      docOrHtml.match(/<span[^>]+data-csrf=["']([a-f0-9]{32,})["'][^>]+class=["'][^"']*csrf-token[^"']*["']/i);
+    if (spanMatch?.[1]) return spanMatch[1];
+
+    const inputMatch =
+      docOrHtml.match(/<input[^>]+name=["']csrf_token["'][^>]+value=["']([a-f0-9]{32,})["']/i) ||
+      docOrHtml.match(/<input[^>]+value=["']([a-f0-9]{32,})["'][^>]+name=["']csrf_token["']/i);
+    if (inputMatch?.[1]) return inputMatch[1];
+
+    return null;
+  }
+
+  const meta = docOrHtml.querySelector?.('meta[name="X-Csrf-Token"]')?.getAttribute('content');
+  if (meta && meta.trim().length >= 10) return meta.trim();
+
+  const span = docOrHtml.querySelector?.('span.csrf-token')?.getAttribute('data-csrf');
+  if (span && span.trim().length >= 10) return span.trim();
+
+  const input = (docOrHtml.querySelector?.('input[name="csrf_token"]') as HTMLInputElement | null)?.value;
+  if (input && input.trim().length >= 10) return input.trim();
+
+  return null;
+}
+
+/**
+ * Parses the JSON response from Codeforces /data/submitSource endpoint.
+ * Returns the source code string if present and non-empty, or null otherwise.
+ */
+export function sourceCodeFromJson(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!payload || typeof payload !== 'object') return null;
+
+  const candidate = (payload as Record<string, unknown>)['source'];
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  return null;
+}
+
+export interface FetchSubmissionSourceOptions {
+  origin?: string;
+  csrfToken?: string | null;
+  fetchFn?: typeof fetch;
+}
+
+/**
+ * Retrieves the source code for a submission using Codeforces' supported same-session
+ * mechanism (`POST /data/submitSource` with CSRF token and submissionId), falling back
+ * to fetching the full submission page HTML if the primary endpoint is unavailable.
+ */
+export async function fetchSubmissionSource(
+  submissionId: string,
+  fallbackUrl?: string,
+  options?: FetchSubmissionSourceOptions
+): Promise<string | null> {
+  const fetchFn = options?.fetchFn ?? (typeof fetch !== 'undefined' ? fetch : null);
+  if (!fetchFn) return null;
+
+  const origin = options?.origin ?? (typeof window !== 'undefined' ? window.location.origin : 'https://codeforces.com');
+  const csrf = options?.csrfToken ?? (typeof document !== 'undefined' ? extractCsrfToken(document) : null);
+
+  // 1. Primary mechanism: Codeforces same-session view-source AJAX endpoint (/data/submitSource)
+  try {
+    const body = new URLSearchParams();
+    body.append('submissionId', submissionId);
+    if (csrf) {
+      body.append('csrf_token', csrf);
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+    if (csrf) {
+      headers['X-Csrf-Token'] = csrf;
+    }
+
+    const response = await fetchFn(`${origin}/data/submitSource`, {
+      method: 'POST',
+      headers,
+      body: body.toString(),
+      credentials: 'same-origin',
+    });
+
+    if (response.ok) {
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        const source = sourceCodeFromJson(json);
+        if (source) return source;
+      } catch {
+        const fromHtml = sourceCodeFromHtml(text);
+        if (fromHtml) return fromHtml;
+      }
+    }
+  } catch {
+    // Ignore and proceed to fallback
+  }
+
+  // 2. Fallback: fetch the submission detail page directly
+  if (fallbackUrl) {
+    try {
+      const response = await fetchFn(fallbackUrl, { credentials: 'same-origin' });
+      if (response.ok) {
+        const html = await response.text();
+        const source = sourceCodeFromHtml(html);
+        if (source) return source;
+      }
+    } catch {
+      return null;
+    }
+  }
+
   return null;
 }
 
@@ -227,23 +369,26 @@ export function rowDataFromElement(row: Element, origin: string): CodeforcesRowD
     (fromAttr && /^\d+$/.test(fromAttr) ? fromAttr : null);
   if (!submissionId) return null;
 
-  const contestId = contestMatch?.[1] ?? gymMatch?.[1] ?? null;
-  const submissionUrl = submHref.startsWith('http') ? submHref : `${origin}${submHref}`;
-
   // Problem link — href matches /contest/<id>/problem/<index> or /problemset/problem/<id>/<index>
   const probLink = row.querySelector<HTMLAnchorElement>('a[href*="/problem/"]');
   const probHref = probLink?.getAttribute('href') ?? '';
   const probUrl  = probHref ? (probHref.startsWith('http') ? probHref : `${origin}${probHref}`) : '';
 
-  // e.g. "/contest/1999/problem/A" → index "A"
-  const idxMatch    = probHref.match(/\/problem\/([A-Z0-9]+)\/?$/i);
-  const problemIndex = idxMatch?.[1] ?? '';
+  const cleanProbHref    = probHref.split('?')[0].split('#')[0];
+  const psProbMatch      = cleanProbHref.match(/\/problemset\/problem\/(\d+)\/([A-Z0-9]+)\/?$/i);
+  const contestProbMatch = cleanProbHref.match(/\/(?:contest|gym)\/(\d+)\/problem\/([A-Z0-9]+)\/?$/i);
+  const simpleProbMatch  = cleanProbHref.match(/\/problem\/([A-Z0-9]+)\/?$/i);
+
+  const problemContestId = psProbMatch?.[1] ?? contestProbMatch?.[1] ?? null;
+  const problemIndex     = psProbMatch?.[2] ?? contestProbMatch?.[2] ?? simpleProbMatch?.[1] ?? '';
+
+  const contestId = contestMatch?.[1] ?? gymMatch?.[1] ?? problemContestId ?? null;
+  const submissionUrl = submHref.startsWith('http') ? submHref : `${origin}${submHref}`;
   const problemId    = contestId && problemIndex ? `${contestId}${problemIndex}` : submissionId;
 
-  // Strip leading "A - " / "A. " / "A – " prefixes from problem link text
+  // Strip leading "A - " / "A. " / "4A - " / "C – " style index prefixes from problem link text
   const rawTitle    = (probLink?.textContent ?? '').trim();
-  // Strip "A. " / "B1 - " / "C – " style index prefixes (Codeforces formats).
-  const problemTitle = rawTitle.replace(/^[A-Z]\d*(\s*[.\u2013]\s*|\s+-\s+)/i, '').trim() || rawTitle || `Submission ${submissionId}`;
+  const problemTitle = rawTitle.replace(/^(?:\d+[A-Z0-9]*|[A-Z]\d*)(\s*[.\u2013]\s*|\s+-\s+)/i, '').trim() || rawTitle || `Submission ${submissionId}`;
 
   const language    = extractLanguage(row);
   const submittedAt = extractTimestamp(row);

@@ -118,6 +118,8 @@ test('isSubmissionsPage matches all known Codeforces submission URL patterns', a
     '/contest/1999/my',
     '/contest/1999/my/',
     '/gym/104941/my',
+    '/problemset/status',
+    '/problemset/status/',
     '/problemset/status/tourist',
     '/submissions/tourist',
     '/profile/tourist',
@@ -127,10 +129,33 @@ test('isSubmissionsPage matches all known Codeforces submission URL patterns', a
   }
 });
 
+test('isSubmissionsPage recognizes /problemset/status with various query strings and hashes', async () => {
+  const { isSubmissionsPage } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const queryVariants = [
+    '/problemset/status?my=on',
+    '/problemset/status/?my=on',
+    '/problemset/status?page=2&order=BY_ARRIVED_DESC',
+    '/problemset/status/?page=2&order=BY_ARRIVED_DESC',
+    '/problemset/status/tourist?page=3',
+    '/problemset/status?my=on#table',
+    '/problemset/status/?my=on#table',
+    '/contest/1999/my?filter=accepted',
+    '/contest/1999/my/?filter=accepted',
+    '/submissions/tourist?page=2',
+    '/profile/tourist?tab=submissions',
+  ];
+  for (const pathname of queryVariants) {
+    assert.equal(isSubmissionsPage(pathname), true, `Expected match for ${pathname}`);
+  }
+});
+
 test('isSubmissionsPage does not match problem, blog, or standings pages', async () => {
   const { isSubmissionsPage } = await importTypeScript('src/content/codeforces-adapter.ts');
   const nonMatching = [
     '/problemset/problem/1/A',
+    '/problemset/problem/1/A?my=on',
+    '/problemset/statusfake',
+    '/problemset/status_overview',
     '/contest/1999/problem/A',
     '/contest/1999/standings',
     '/blog/entry/12345',
@@ -276,6 +301,94 @@ test('rowDataFromElement handles problemset submission URL pattern', async () =>
   assert.equal(data?.language, 'Python 3');
 });
 
+test('rowDataFromElement parses /contest/4/problem/A producing contestId=4, problemIndex=A, problemId=4A', async () => {
+  const { rowDataFromElement } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const row = makeRow({
+    submHref: '/contest/4/submission/393260173',
+    probHref: '/contest/4/problem/A',
+    probText: 'A. Watermelon',
+    cells: ['393260173', 'Oct/05/2026 12:50:43', 'senthil._spain22', 'A. Watermelon', 'Python 3', 'Accepted', '46 ms', '0 KB'],
+  });
+  const data = rowDataFromElement(row, 'https://codeforces.com');
+  assert.equal(data?.submissionId, '393260173');
+  assert.equal(data?.contestId, '4');
+  assert.equal(data?.problemId, '4A');
+  assert.equal(data?.problemTitle, 'Watermelon');
+  assert.equal(data?.problemUrl, 'https://codeforces.com/contest/4/problem/A');
+});
+
+test('rowDataFromElement parses /problemset/problem/4/A producing contestId=4, problemIndex=A, problemId=4A', async () => {
+  const { rowDataFromElement } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const row = makeRow({
+    submHref: '/contest/4/submission/393260173',
+    probHref: '/problemset/problem/4/A',
+    probText: '4A - Watermelon',
+    cells: ['393260173', 'Oct/05/2026 12:50:43', 'senthil._spain22', '4A - Watermelon', 'Python 3', 'Accepted', '46 ms', '0 KB'],
+  });
+  const data = rowDataFromElement(row, 'https://codeforces.com');
+  assert.equal(data?.submissionId, '393260173');
+  assert.equal(data?.contestId, '4');
+  assert.equal(data?.problemId, '4A');
+  assert.equal(data?.problemTitle, 'Watermelon');
+  assert.equal(data?.problemUrl, 'https://codeforces.com/problemset/problem/4/A');
+});
+
+test('rowDataFromElement handles problemset problem URL with /problemset/submission link', async () => {
+  const { rowDataFromElement } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const row = makeRow({
+    submHref: '/problemset/submission/senthil._spain22/393260173',
+    probHref: '/problemset/problem/4/A',
+    probText: '4A - Watermelon',
+    cells: ['393260173', 'Oct/05/2026 12:50:43', 'senthil._spain22', '4A - Watermelon', 'Python 3', 'Accepted', '46 ms', '0 KB'],
+  });
+  const data = rowDataFromElement(row, 'https://codeforces.com');
+  assert.equal(data?.submissionId, '393260173');
+  assert.equal(data?.contestId, '4');
+  assert.equal(data?.problemId, '4A');
+  assert.equal(data?.problemTitle, 'Watermelon');
+});
+
+test('both problem link formats allow rating lookup to resolve rating 800 for Watermelon', async () => {
+  const { rowDataFromElement } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const { parseContestRatings, problemRatingKey } = await importTypeScript('src/lib/codeforces-rating.ts');
+
+  const mockStandingsResponse = {
+    status: 'OK',
+    result: {
+      problems: [
+        { contestId: 4, index: 'A', name: 'Watermelon', rating: 800 },
+        { contestId: 4, index: 'B', name: 'Before an Exam', rating: 1200 },
+      ],
+    },
+  };
+  const ratings = parseContestRatings(mockStandingsResponse);
+
+  const contestRow = makeRow({
+    submHref: '/contest/4/submission/393260173',
+    probHref: '/contest/4/problem/A',
+    probText: 'A. Watermelon',
+  });
+  const problemsetRow = makeRow({
+    submHref: '/problemset/submission/senthil._spain22/393260173',
+    probHref: '/problemset/problem/4/A',
+    probText: '4A - Watermelon',
+  });
+
+  const contestData = rowDataFromElement(contestRow, 'https://codeforces.com');
+  const problemsetData = rowDataFromElement(problemsetRow, 'https://codeforces.com');
+
+  assert.equal(contestData?.problemId, '4A');
+  assert.equal(problemsetData?.problemId, '4A');
+
+  const key1 = problemRatingKey(contestData.contestId, contestData.problemId);
+  const key2 = problemRatingKey(problemsetData.contestId, problemsetData.problemId);
+
+  assert.equal(key1, '4A');
+  assert.equal(key2, '4A');
+  assert.equal(ratings[key1], 800);
+  assert.equal(ratings[key2], 800);
+});
+
 test('rowDataFromElement returns null when no submission link is present', async () => {
   const { rowDataFromElement } = await importTypeScript('src/content/codeforces-adapter.ts');
   const row = makeRow({ submHref: '' });
@@ -417,4 +530,187 @@ test('extractLanguage: returns Unknown when no language can be detected', async 
   });
   const data = rowDataFromElement(row, 'https://codeforces.com');
   assert.equal(data?.language, 'Unknown');
+});
+
+// ── Same-session source extraction tests ──────────────────────────────────────
+
+test('extractCsrfToken extracts token from DOM meta[name="X-Csrf-Token"]', async () => {
+  const { extractCsrfToken } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const doc = {
+    querySelector(selector) {
+      if (selector === 'meta[name="X-Csrf-Token"]') {
+        return { getAttribute: (attr) => attr === 'content' ? '29a92b8221e77eed6b9ccc6291788d75' : null };
+      }
+      return null;
+    },
+  };
+  assert.equal(extractCsrfToken(doc), '29a92b8221e77eed6b9ccc6291788d75');
+});
+
+test('extractCsrfToken extracts token from DOM span.csrf-token[data-csrf]', async () => {
+  const { extractCsrfToken } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const doc = {
+    querySelector(selector) {
+      if (selector === 'span.csrf-token') {
+        return { getAttribute: (attr) => attr === 'data-csrf' ? '3fa85f64cfc24e3bc3136a6e2978082e' : null };
+      }
+      return null;
+    },
+  };
+  assert.equal(extractCsrfToken(doc), '3fa85f64cfc24e3bc3136a6e2978082e');
+});
+
+test('extractCsrfToken extracts token from DOM input[name="csrf_token"][value]', async () => {
+  const { extractCsrfToken } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const doc = {
+    querySelector(selector) {
+      if (selector === 'input[name="csrf_token"]') {
+        return { value: '7c4a8d09ca3762af61e59520943dc264' };
+      }
+      return null;
+    },
+  };
+  assert.equal(extractCsrfToken(doc), '7c4a8d09ca3762af61e59520943dc264');
+});
+
+test('extractCsrfToken extracts token from raw HTML strings', async () => {
+  const { extractCsrfToken } = await importTypeScript('src/content/codeforces-adapter.ts');
+  const htmlMeta = '<html><head><meta name="X-Csrf-Token" content="29a92b8221e77eed6b9ccc6291788d75"/></head></html>';
+  assert.equal(extractCsrfToken(htmlMeta), '29a92b8221e77eed6b9ccc6291788d75');
+
+  const htmlSpan = '<body><span style="display:none;" class="csrf-token" data-csrf="3fa85f64cfc24e3bc3136a6e2978082e">&nbsp;</span></body>';
+  assert.equal(extractCsrfToken(htmlSpan), '3fa85f64cfc24e3bc3136a6e2978082e');
+
+  const htmlInput = '<form><input type="hidden" name="csrf_token" value="7c4a8d09ca3762af61e59520943dc264"/></form>';
+  assert.equal(extractCsrfToken(htmlInput), '7c4a8d09ca3762af61e59520943dc264');
+});
+
+test('extractCsrfToken returns null when token is missing or too short', async () => {
+  const { extractCsrfToken } = await importTypeScript('src/content/codeforces-adapter.ts');
+  assert.equal(extractCsrfToken(null), null);
+  assert.equal(extractCsrfToken(''), null);
+  assert.equal(extractCsrfToken('<html><body>No token</body></html>'), null);
+  const docShort = {
+    querySelector() {
+      return { getAttribute: () => 'short' };
+    },
+  };
+  assert.equal(extractCsrfToken(docShort), null);
+});
+
+test('sourceCodeFromJson parses valid source from object or string payload', async () => {
+  const { sourceCodeFromJson } = await importTypeScript('src/content/codeforces-adapter.ts');
+  assert.equal(sourceCodeFromJson({ source: '#include <iostream>\nint main() {}' }), '#include <iostream>\nint main() {}');
+  assert.equal(sourceCodeFromJson(JSON.stringify({ source: 'print("hello world")\n' })), 'print("hello world")');
+});
+
+test('sourceCodeFromJson returns null for missing or invalid source payload', async () => {
+  const { sourceCodeFromJson } = await importTypeScript('src/content/codeforces-adapter.ts');
+  assert.equal(sourceCodeFromJson(null), null);
+  assert.equal(sourceCodeFromJson({}), null);
+  assert.equal(sourceCodeFromJson({ source: '   ' }), null);
+  assert.equal(sourceCodeFromJson({ source: 12345 }), null);
+  assert.equal(sourceCodeFromJson('not json'), null);
+});
+
+test('fetchSubmissionSource succeeds via /data/submitSource same-session POST', async () => {
+  const { fetchSubmissionSource } = await importTypeScript('src/content/codeforces-adapter.ts');
+
+  let calledUrl = null;
+  let calledOptions = null;
+  const mockFetch = async (url, opts) => {
+    calledUrl = url;
+    calledOptions = opts;
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ source: '#include <bits/stdc++.h>\nusing namespace std;\nint main() {}' }),
+    };
+  };
+
+  const code = await fetchSubmissionSource('393260173', 'https://codeforces.com/contest/4/submission/393260173', {
+    origin: 'https://codeforces.com',
+    csrfToken: '29a92b8221e77eed6b9ccc6291788d75',
+    fetchFn: mockFetch,
+  });
+
+  assert.equal(calledUrl, 'https://codeforces.com/data/submitSource');
+  assert.equal(calledOptions.method, 'POST');
+  assert.equal(calledOptions.credentials, 'same-origin');
+  assert.equal(calledOptions.headers['X-Csrf-Token'], '29a92b8221e77eed6b9ccc6291788d75');
+  assert.equal(calledOptions.headers['X-Requested-With'], 'XMLHttpRequest');
+  assert.match(calledOptions.body, /submissionId=393260173/);
+  assert.match(calledOptions.body, /csrf_token=29a92b8221e77eed6b9ccc6291788d75/);
+  assert.equal(code, '#include <bits/stdc++.h>\nusing namespace std;\nint main() {}');
+});
+
+test('fetchSubmissionSource falls back to fallbackUrl when /data/submitSource fails', async () => {
+  const { fetchSubmissionSource } = await importTypeScript('src/content/codeforces-adapter.ts');
+
+  const requestedUrls = [];
+  const mockFetch = async (url) => {
+    requestedUrls.push(url);
+    if (url.includes('/data/submitSource')) {
+      return { ok: false, status: 403, text: async () => 'Forbidden' };
+    }
+    return {
+      ok: true,
+      text: async () => '<html><body><pre id="program-source-text">int solve() { return 42; }</pre></body></html>',
+    };
+  };
+
+  const code = await fetchSubmissionSource('393260173', 'https://codeforces.com/contest/4/submission/393260173', {
+    origin: 'https://codeforces.com',
+    fetchFn: mockFetch,
+  });
+
+  assert.deepEqual(requestedUrls, [
+    'https://codeforces.com/data/submitSource',
+    'https://codeforces.com/contest/4/submission/393260173',
+  ]);
+  assert.equal(code, 'int solve() { return 42; }');
+});
+
+test('fetchSubmissionSource falls back to fallbackUrl when /data/submitSource returns empty/invalid JSON', async () => {
+  const { fetchSubmissionSource } = await importTypeScript('src/content/codeforces-adapter.ts');
+
+  const requestedUrls = [];
+  const mockFetch = async (url) => {
+    requestedUrls.push(url);
+    if (url.includes('/data/submitSource')) {
+      return { ok: true, text: async () => JSON.stringify({ success: false, message: 'Source not available' }) };
+    }
+    return {
+      ok: true,
+      text: async () => '<html><body><pre class="prettyprint">int solve() { return 100; }</pre></body></html>',
+    };
+  };
+
+  const code = await fetchSubmissionSource('393260173', 'https://codeforces.com/contest/4/submission/393260173', {
+    origin: 'https://codeforces.com',
+    fetchFn: mockFetch,
+  });
+
+  assert.deepEqual(requestedUrls, [
+    'https://codeforces.com/data/submitSource',
+    'https://codeforces.com/contest/4/submission/393260173',
+  ]);
+  assert.equal(code, 'int solve() { return 100; }');
+});
+
+test('fetchSubmissionSource returns null when both endpoints fail or throw', async () => {
+  const { fetchSubmissionSource } = await importTypeScript('src/content/codeforces-adapter.ts');
+
+  const mockFetch = async (url) => {
+    if (url.includes('/data/submitSource')) {
+      throw new Error('Network error');
+    }
+    return { ok: false, status: 500, text: async () => 'Server error' };
+  };
+
+  const code = await fetchSubmissionSource('393260173', 'https://codeforces.com/contest/4/submission/393260173', {
+    origin: 'https://codeforces.com',
+    fetchFn: mockFetch,
+  });
+
+  assert.equal(code, null);
 });

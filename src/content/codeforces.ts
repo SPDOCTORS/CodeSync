@@ -3,6 +3,8 @@
 // Do not scrape credentials or submit code to any external endpoint here.
 
 import {
+  extractCsrfToken,
+  fetchSubmissionSource,
   isAcceptedRow,
   isSubmissionsPage,
   rowDataFromElement,
@@ -17,19 +19,16 @@ const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
 const observed = new Set<string>();
 
 /**
- * Fetches the source code for a submission by loading its detail page.
- * Uses same-origin credentials so the logged-in session is forwarded.
- * Returns null if the page is unavailable or contains no parseable source block.
+ * Fetches the source code for a submission.
+ * Uses Codeforces' native same-session /data/submitSource mechanism with active CSRF token,
+ * falling back to fetching the submission detail page if unavailable.
  */
-async function fetchSource(url: string): Promise<string | null> {
-  try {
-    const response = await fetch(url, { credentials: 'same-origin' });
-    if (!response.ok) return null;
-    const html = await response.text();
-    return sourceCodeFromHtml(html);
-  } catch {
-    return null;
-  }
+async function fetchSource(submissionId: string, submissionUrl: string): Promise<string | null> {
+  const csrfToken = extractCsrfToken(document);
+  return fetchSubmissionSource(submissionId, submissionUrl, {
+    origin: window.location.origin,
+    csrfToken,
+  });
 }
 
 /**
@@ -52,7 +51,7 @@ async function processRow(row: Element): Promise<void> {
   // Brief delay before fetch: avoids hitting Codeforces immediately after page load.
   await sleep(300);
 
-  const sourceCode = await fetchSource(data.submissionUrl);
+  const sourceCode = await fetchSource(data.submissionId, data.submissionUrl);
   if (!sourceCode) {
     // Source unavailable — remove from observed so a later scan can retry.
     observed.delete(data.submissionId);
