@@ -186,6 +186,21 @@ test('createSessionStore fails closed when REDIS_URL is malformed with safe diag
   );
 });
 
+test('createSessionStore configures lazyConnect, Upstash TLS upgrade, and serverless options', async () => {
+  const { createSessionStore } = await import('../server/session-store.mjs');
+  const store = createSessionStore({
+    redisUrl: 'redis://default:secret@sample-db.upstash.io:6379',
+  });
+  const client = store.client;
+  assert.equal(client.options.lazyConnect, true);
+  assert.equal(client.options.enableOfflineQueue, false);
+  assert.equal(client.options.connectTimeout, 5000);
+  assert.equal(client.options.maxRetriesPerRequest, 3);
+  // Verify that Upstash host was automatically upgraded to TLS
+  assert.ok(Boolean(client.options.tls));
+  assert.equal(client.status, 'wait');
+});
+
 test('createRequestHandler produces safe diagnostic when request URL is unparseable', async () => {
   const { createRequestHandler } = await import('../server/index.mjs');
   const handler = createRequestHandler();

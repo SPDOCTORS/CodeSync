@@ -249,11 +249,18 @@ export function createSessionStore(options = {}) {
 
   const rawRedisUrl = options.redisUrl ?? process.env.REDIS_URL;
   if (rawRedisUrl) {
-    const redisUrl = typeof rawRedisUrl === 'string' ? rawRedisUrl.trim().replace(/^["']|["']$/g, '') : rawRedisUrl;
+    let redisUrl = typeof rawRedisUrl === 'string' ? rawRedisUrl.trim().replace(/^["']|["']$/g, '') : rawRedisUrl;
+    // Upstash requires TLS (rediss://). Upgrade unencrypted redis:// for Upstash hosts.
+    if (typeof redisUrl === 'string' && redisUrl.includes('upstash.io') && redisUrl.startsWith('redis://')) {
+      redisUrl = 'rediss://' + redisUrl.slice('redis://'.length);
+    }
     try {
       const client = new Redis(redisUrl, {
+        lazyConnect: true,
+        connectTimeout: 5000,
         maxRetriesPerRequest: 3,
-        retryStrategy: times => Math.min(times * 100, 3000),
+        retryStrategy: times => (times > 3 ? null : Math.min(times * 100, 3000)),
+        enableOfflineQueue: false,
         ...options.redisOptions,
       });
       client.on('error', err => {
