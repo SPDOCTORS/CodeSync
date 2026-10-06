@@ -8,7 +8,13 @@ const isDirectRun = Boolean(process.argv[1] && /server[/\\]index\.mjs$/.test(pro
 if (isDirectRun) {
   for (const key of required) if (!process.env[key]) throw new Error(`Missing ${key}`);
 }
-const configuredUrl = new URL(process.env.PUBLIC_BASE_URL || 'http://localhost:8787');
+function resolveBaseUrl(raw) {
+  if (!raw) return 'http://localhost:8787';
+  const trimmed = raw.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+const configuredUrl = new URL(resolveBaseUrl(process.env.PUBLIC_BASE_URL));
 const isLocalDevelopment = configuredUrl.protocol === 'http:' && configuredUrl.hostname === 'localhost' && configuredUrl.port === '8787';
 if (configuredUrl.protocol !== 'https:' && !isLocalDevelopment) throw new Error('PUBLIC_BASE_URL must use HTTPS, except http://localhost:8787 for local development.');
 const baseUrl = configuredUrl.origin;
@@ -26,7 +32,20 @@ const validRepo = value => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 export function createRequestHandler({ baseUrl: base = baseUrl, store = sessionStore, fetchFn = fetch } = {}) {
   return async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
-    const url = new URL(req.url, base);
+    const proto = req.headers?.['x-forwarded-proto']?.split(',')[0].trim() || (configuredUrl.protocol ? configuredUrl.protocol.replace(':', '') : 'http');
+    const host = req.headers?.['x-forwarded-host']?.split(',')[0].trim() || req.headers?.host || configuredUrl.host;
+    let requestBase = base || `${proto}://${host}`;
+    if (!/^https?:\/\//i.test(requestBase)) {
+      requestBase = `https://${requestBase}`;
+    }
+
+    let rawUrl = (req.url || '/').trim();
+    if (!rawUrl.startsWith('/') && !/^https?:\/\//i.test(rawUrl)) {
+      rawUrl = `/${rawUrl}`;
+    }
+    rawUrl = rawUrl.replace(/^\/{2,}/, '/');
+
+    const url = new URL(rawUrl, requestBase);
     const tokenMatch = req.headers.authorization?.match(/^Bearer (.+)$/);
     try {
       if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true });

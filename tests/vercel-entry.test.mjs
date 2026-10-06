@@ -94,6 +94,84 @@ test('vercelHandler preserves 401 rejection for unauthenticated /v1/github/sessi
   assert.deepEqual(JSON.parse(responseBody), { error: 'Sign in again.' });
 });
 
+test('vercelHandler handles Vercel edge request headers (x-forwarded-proto and x-forwarded-host)', async () => {
+  let statusCode = null;
+  let responseBody = '';
+
+  const req = {
+    method: 'GET',
+    url: '/healthz',
+    headers: {
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'codesync-backend.vercel.app',
+      host: 'codesync-backend.vercel.app',
+    },
+  };
+  const res = {
+    writeHead(status) { statusCode = status; },
+    end(data) { responseBody = data; },
+  };
+
+  await vercelHandler(req, res);
+  assert.equal(statusCode, 200);
+  assert.deepEqual(JSON.parse(responseBody), { ok: true });
+});
+
+test('vercelHandler safely sanitizes double-slash or missing-slash URLs without throwing Invalid URL', async () => {
+  let statusCode = null;
+  let responseBody = '';
+
+  const req = {
+    method: 'GET',
+    url: '//healthz',
+    headers: {
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'codesync-backend.vercel.app',
+    },
+  };
+  const res = {
+    writeHead(status) { statusCode = status; },
+    end(data) { responseBody = data; },
+  };
+
+  await vercelHandler(req, res);
+  assert.equal(statusCode, 200);
+  assert.deepEqual(JSON.parse(responseBody), { ok: true });
+
+  // Test missing leading slash
+  statusCode = null;
+  responseBody = '';
+  const reqNoSlash = {
+    method: 'GET',
+    url: 'healthz',
+    headers: {},
+  };
+  await vercelHandler(reqNoSlash, res);
+  assert.equal(statusCode, 200);
+  assert.deepEqual(JSON.parse(responseBody), { ok: true });
+});
+
+test('vercelHandler handles x-matched-path with embedded query without duplicating query params', async () => {
+  let statusCode = null;
+  let responseBody = '';
+
+  const req = {
+    method: 'GET',
+    url: '/api?state=test_state',
+    headers: {
+      'x-matched-path': '/v1/oauth/github/callback?state=test_state',
+    },
+  };
+  const res = {
+    writeHead(status) { statusCode = status; },
+    end(data) { responseBody = data; },
+  };
+
+  await vercelHandler(req, res);
+  assert.equal(statusCode, 400);
+  assert.equal(req.url, '/v1/oauth/github/callback?state=test_state');
+});
+
 test('vercel.json is valid and contains wildcard rewrite to /api', async () => {
   const content = await read('vercel.json');
   const parsed = JSON.parse(content);
