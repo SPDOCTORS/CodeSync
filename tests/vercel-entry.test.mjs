@@ -172,6 +172,68 @@ test('vercelHandler handles x-matched-path with embedded query without duplicati
   assert.equal(req.url, '/v1/oauth/github/callback?state=test_state');
 });
 
+test('createSessionStore fails closed when REDIS_URL is malformed with safe diagnostic', async () => {
+  const { createSessionStore } = await import('../server/session-store.mjs');
+  // Pass a Redis URL with special characters in password that breaks ioredis new URL()
+  assert.throws(
+    () => createSessionStore({ redisUrl: 'redis://default:pass#word?@host:6379' }),
+    err => {
+      assert.ok(err.message.includes('[REDIS_URL configuration error]'));
+      // Verify no password/credentials are leaked in error message
+      assert.ok(!err.message.includes('pass#word'));
+      return true;
+    }
+  );
+});
+
+test('createRequestHandler produces safe diagnostic when request URL is unparseable', async () => {
+  const { createRequestHandler } = await import('../server/index.mjs');
+  const handler = createRequestHandler();
+  let statusCode = null;
+  let responseBody = '';
+
+  const res = {
+    writeHead(status) { statusCode = status; },
+    end(data) { responseBody = data; },
+  };
+
+  // Malformed URL that cannot be resolved against base
+  const req = {
+    method: 'GET',
+    url: 'http://',
+    headers: {},
+  };
+
+  await assert.rejects(
+    async () => handler(req, res),
+    err => {
+      assert.ok(err.message.includes('[Request URL construction error]'));
+      assert.equal(err.status, 400);
+      return true;
+    }
+  );
+});
+
+test('vercelHandler returns safe diagnostic error without fake 200 masking on failure', async () => {
+  let statusCode = null;
+  let responseBody = '';
+
+  const req = {
+    method: 'GET',
+    url: 'http://',
+    headers: {},
+  };
+  const res = {
+    writeHead(status) { statusCode = status; },
+    end(data) { responseBody = data; },
+  };
+
+  await vercelHandler(req, res);
+  assert.equal(statusCode, 400);
+  const parsed = JSON.parse(responseBody);
+  assert.ok(parsed.error?.includes('[Request URL construction error]'));
+});
+
 test('vercel.json is valid and contains wildcard rewrite to /api', async () => {
   const content = await read('vercel.json');
   const parsed = JSON.parse(content);

@@ -9,14 +9,29 @@ if (isDirectRun) {
   for (const key of required) if (!process.env[key]) throw new Error(`Missing ${key}`);
 }
 function resolveBaseUrl(raw) {
-  if (!raw) return 'http://localhost:8787';
-  const trimmed = raw.trim();
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let val = raw;
+  if (val && typeof val === 'string') {
+    val = val.trim().replace(/^["']|["']$/g, '');
+    if (val === '$VERCEL_URL' || val === '${VERCEL_URL}') {
+      val = process.env.VERCEL_URL;
+    }
+  }
+  if (!val) {
+    val = process.env.VERCEL_URL || 'http://localhost:8787';
+  }
+  val = String(val).trim().replace(/^["']|["']$/g, '');
+  const withProto = /^https?:\/\//i.test(val) ? val : `https://${val}`;
+  try {
+    return new URL(withProto);
+  } catch (err) {
+    console.error('[PUBLIC_BASE_URL configuration error]', err?.message || err);
+    throw new Error(`[PUBLIC_BASE_URL configuration error] Failed to parse URL: ${err?.message || 'Invalid URL'}`);
+  }
 }
 
-const configuredUrl = new URL(resolveBaseUrl(process.env.PUBLIC_BASE_URL));
+const configuredUrl = resolveBaseUrl(process.env.PUBLIC_BASE_URL);
 const isLocalDevelopment = configuredUrl.protocol === 'http:' && configuredUrl.hostname === 'localhost' && configuredUrl.port === '8787';
-if (configuredUrl.protocol !== 'https:' && !isLocalDevelopment) throw new Error('PUBLIC_BASE_URL must use HTTPS, except http://localhost:8787 for local development.');
+if (configuredUrl.protocol !== 'https:' && !isLocalDevelopment) throw new Error('[PUBLIC_BASE_URL configuration error] Must use HTTPS, except http://localhost:8787 for local development.');
 const baseUrl = configuredUrl.origin;
 export const sessionStore = createSessionStore({
   redisUrl: process.env.REDIS_URL,
@@ -39,13 +54,20 @@ export function createRequestHandler({ baseUrl: base = baseUrl, store = sessionS
       requestBase = `https://${requestBase}`;
     }
 
-    let rawUrl = (req.url || '/').trim();
-    if (!rawUrl.startsWith('/') && !/^https?:\/\//i.test(rawUrl)) {
-      rawUrl = `/${rawUrl}`;
+    let url;
+    try {
+      let rawUrl = (req.url || '/').trim();
+      if (!rawUrl.startsWith('/') && !/^https?:\/\//i.test(rawUrl)) {
+        rawUrl = `/${rawUrl}`;
+      }
+      rawUrl = rawUrl.replace(/^\/{2,}/, '/');
+      url = new URL(rawUrl, requestBase);
+    } catch (urlErr) {
+      console.error('[Request URL construction error]', urlErr?.message ?? urlErr);
+      const err = new Error(`[Request URL construction error] Failed to parse request URL: ${urlErr?.message || 'Invalid URL'}`);
+      err.status = 400;
+      throw err;
     }
-    rawUrl = rawUrl.replace(/^\/{2,}/, '/');
-
-    const url = new URL(rawUrl, requestBase);
     const tokenMatch = req.headers.authorization?.match(/^Bearer (.+)$/);
     try {
       if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true });

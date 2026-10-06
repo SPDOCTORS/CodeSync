@@ -247,23 +247,34 @@ export function createSessionStore(options = {}) {
     return new RedisSessionStore(options.client, options);
   }
 
-  const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
-  if (redisUrl) {
-    const client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      retryStrategy: times => Math.min(times * 100, 3000),
-      ...options.redisOptions,
-    });
-    client.on('error', err => {
-      console.error('[Redis error]', err?.message ?? err);
-    });
-    return new RedisSessionStore(client, { ...options, isInMemory: false });
+  const rawRedisUrl = options.redisUrl ?? process.env.REDIS_URL;
+  if (rawRedisUrl) {
+    const redisUrl = typeof rawRedisUrl === 'string' ? rawRedisUrl.trim().replace(/^["']|["']$/g, '') : rawRedisUrl;
+    try {
+      const client = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        retryStrategy: times => Math.min(times * 100, 3000),
+        ...options.redisOptions,
+      });
+      client.on('error', err => {
+        console.error('[Redis error]', err?.message ?? err);
+      });
+      return new RedisSessionStore(client, { ...options, isInMemory: false });
+    } catch (err) {
+      const safeErrMessage = err?.message || 'Invalid Redis URL format';
+      console.error('[REDIS_URL configuration error]', safeErrMessage);
+      throw new Error(`[REDIS_URL configuration error] Failed to initialize Redis client: ${safeErrMessage}`);
+    }
   }
 
   if (options.fallbackToMemory !== false) {
     return new RedisSessionStore(new MemoryRedisClient(), { ...options, isInMemory: true });
   }
 
-  const client = new Redis('redis://127.0.0.1:6379', options.redisOptions);
-  return new RedisSessionStore(client, { ...options, isInMemory: false });
+  try {
+    const client = new Redis('redis://127.0.0.1:6379', options.redisOptions);
+    return new RedisSessionStore(client, { ...options, isInMemory: false });
+  } catch {
+    return new RedisSessionStore(new MemoryRedisClient(), { ...options, isInMemory: true });
+  }
 }
