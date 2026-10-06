@@ -451,3 +451,144 @@ test('client logic: session recovery from chrome.storage.local when session stor
   await chromeMock.storage.local.remove('backendSession');
   assert.equal(await getBackendSession(), null);
 });
+
+test('RedisSessionStore ensures lazy client connects before issuing commands', async () => {
+  let connectCount = 0;
+  const storeMap = new Map();
+
+  const mockLazyClient = {
+    status: 'wait',
+    async connect() {
+      connectCount++;
+      await new Promise(r => setTimeout(r, 5));
+      this.status = 'ready';
+    },
+    async set(key, val, ...args) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      storeMap.set(key, val);
+      return 'OK';
+    },
+    async get(key) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      return storeMap.get(key) ?? null;
+    },
+    async del(key) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      return storeMap.delete(key) ? 1 : 0;
+    },
+    async expire(key, sec) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      return 1;
+    },
+  };
+
+  const store = new RedisSessionStore(mockLazyClient);
+  assert.equal(mockLazyClient.status, 'wait');
+
+  // createSession must await connect() and succeed without throwing offline queue error
+  const sessionToken = await store.createSession('gho_test_token_123');
+  assert.equal(connectCount, 1);
+  assert.equal(mockLazyClient.status, 'ready');
+
+  // getSession on ready client must NOT call connect() again
+  const session = await store.getSession(sessionToken);
+  assert.equal(connectCount, 1);
+  assert.equal(session.githubToken, 'gho_test_token_123');
+});
+
+test('RedisSessionStore coalesces concurrent operations to a single connect() call', async () => {
+  let connectCount = 0;
+  const storeMap = new Map();
+
+  const mockLazyClient = {
+    status: 'wait',
+    async connect() {
+      connectCount++;
+      await new Promise(r => setTimeout(r, 20));
+      this.status = 'ready';
+    },
+    async set(key, val, ...args) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      storeMap.set(key, val);
+      return 'OK';
+    },
+    async get(key) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      return storeMap.get(key) ?? null;
+    },
+    async del(key) {
+      return storeMap.delete(key) ? 1 : 0;
+    },
+  };
+
+  const store = new RedisSessionStore(mockLazyClient);
+
+  // Issue 5 concurrent calls while client is in 'wait' state
+  const results = await Promise.all([
+    store.createSession('tok_1'),
+    store.createSession('tok_2'),
+    store.createSession('tok_3'),
+    store.createSession('tok_4'),
+    store.createSession('tok_5'),
+  ]);
+
+  assert.equal(results.length, 5);
+  // connect() was only called once for all 5 concurrent operations!
+  assert.equal(connectCount, 1);
+  assert.equal(mockLazyClient.status, 'ready');
+});
+
+test('RedisSessionStore fails closed when connect fails, without falling back to memory', async () => {
+  let shouldFail = true;
+  let connectAttempts = 0;
+
+  const mockFailingClient = {
+    status: 'wait',
+    async connect() {
+      connectAttempts++;
+      if (shouldFail) {
+        this.status = 'wait';
+        throw new Error('Connection refused by Redis server');
+      }
+      this.status = 'ready';
+    },
+    async get(key) {
+      if (this.status !== 'ready') {
+        throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      }
+      return null;
+    },
+  };
+
+  const store = new RedisSessionStore(mockFailingClient);
+
+  // Fails closed by throwing the connection error
+  await assert.rejects(
+    () => store.getSession('test_token'),
+    err => {
+      assert.ok(err.message.includes('Connection refused'));
+      return true;
+    }
+  );
+  assert.equal(connectAttempts, 1);
+
+  // The connecting promise is cleared so subsequent retry can succeed
+  shouldFail = false;
+  const result = await store.getSession('test_token');
+  assert.equal(result, null);
+  assert.equal(connectAttempts, 2);
+  assert.equal(mockFailingClient.status, 'ready');
+});
+

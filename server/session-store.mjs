@@ -88,6 +88,7 @@ export class RedisSessionStore {
     this.txTtlSeconds = options.txTtlSeconds ?? 600; // 10 minutes
     this.handoffTtlSeconds = options.handoffTtlSeconds ?? 120; // 2 minutes
     this.isInMemory = Boolean(options.isInMemory);
+    this.connectingPromise = null;
   }
 
   sessionKey(token) {
@@ -106,6 +107,62 @@ export class RedisSessionStore {
     return randomBytes(32).toString('base64url');
   }
 
+  /**
+   * Ensures the Redis client is connected and ready before issuing commands.
+   * Resolves immediately if in-memory or client.status is already 'ready'.
+   * If 'connecting', 'connect', or 'reconnecting', awaits the 'ready' event.
+   * If 'wait' or 'close', calls connect().
+   * Concurrent callers share the same connecting promise.
+   */
+  async ensureConnected() {
+    if (this.isInMemory || !this.client || typeof this.client.connect !== 'function') {
+      return;
+    }
+    if (this.client.status === 'ready') {
+      return;
+    }
+    if (this.connectingPromise) {
+      return this.connectingPromise;
+    }
+
+    this.connectingPromise = (async () => {
+      try {
+        if (this.client.status === 'ready') {
+          return;
+        }
+        if (this.client.status === 'connecting' || this.client.status === 'connect' || this.client.status === 'reconnecting') {
+          await new Promise((resolve, reject) => {
+            const onReady = () => { cleanup(); resolve(); };
+            const onError = (err) => { cleanup(); reject(err); };
+            const onClose = () => { cleanup(); reject(new Error('Redis connection closed before ready')); };
+            const cleanup = () => {
+              if (typeof this.client.removeListener === 'function') {
+                this.client.removeListener('ready', onReady);
+                this.client.removeListener('error', onError);
+                this.client.removeListener('close', onClose);
+                this.client.removeListener('end', onClose);
+              }
+            };
+            if (typeof this.client.once === 'function') {
+              this.client.once('ready', onReady);
+              this.client.once('error', onError);
+              this.client.once('close', onClose);
+              this.client.once('end', onClose);
+            } else {
+              resolve();
+            }
+          });
+          return;
+        }
+        await this.client.connect();
+      } finally {
+        this.connectingPromise = null;
+      }
+    })();
+
+    return this.connectingPromise;
+  }
+
   async createSession(githubToken, ttlSeconds = this.sessionTtlSeconds) {
     const sessionToken = this.generateToken();
     await this.setSession(sessionToken, { githubToken }, ttlSeconds);
@@ -113,6 +170,7 @@ export class RedisSessionStore {
   }
 
   async setSession(sessionToken, data, ttlSeconds = this.sessionTtlSeconds) {
+    await this.ensureConnected();
     const key = this.sessionKey(sessionToken);
     const expiresAt = Date.now() + ttlSeconds * 1000;
     const payload = JSON.stringify({
@@ -130,6 +188,7 @@ export class RedisSessionStore {
    */
   async getSession(sessionToken, { touch = true } = {}) {
     if (!sessionToken) return null;
+    await this.ensureConnected();
     const key = this.sessionKey(sessionToken);
     const raw = await this.client.get(key);
     if (!raw) return null;
@@ -152,6 +211,7 @@ export class RedisSessionStore {
 
   async deleteSession(sessionToken) {
     if (!sessionToken) return false;
+    await this.ensureConnected();
     const key = this.sessionKey(sessionToken);
     const count = await this.client.del(key);
     return count > 0;
@@ -159,12 +219,14 @@ export class RedisSessionStore {
 
   async touchSession(sessionToken, ttlSeconds = this.sessionTtlSeconds) {
     if (!sessionToken) return false;
+    await this.ensureConnected();
     const key = this.sessionKey(sessionToken);
     const res = await this.client.expire(key, ttlSeconds);
     return res > 0;
   }
 
   async setTransaction(state, data, ttlSeconds = this.txTtlSeconds) {
+    await this.ensureConnected();
     const key = this.txKey(state);
     const expiresAt = Date.now() + ttlSeconds * 1000;
     const payload = JSON.stringify({ ...data, expires: expiresAt });
@@ -174,6 +236,7 @@ export class RedisSessionStore {
 
   async getTransaction(state) {
     if (!state) return null;
+    await this.ensureConnected();
     const key = this.txKey(state);
     const raw = await this.client.get(key);
     if (!raw) return null;
@@ -191,12 +254,14 @@ export class RedisSessionStore {
 
   async deleteTransaction(state) {
     if (!state) return false;
+    await this.ensureConnected();
     const key = this.txKey(state);
     const count = await this.client.del(key);
     return count > 0;
   }
 
   async setHandoff(code, data, ttlSeconds = this.handoffTtlSeconds) {
+    await this.ensureConnected();
     const key = this.handoffKey(code);
     const expiresAt = Date.now() + ttlSeconds * 1000;
     const payload = JSON.stringify({ ...data, expires: expiresAt });
@@ -206,6 +271,7 @@ export class RedisSessionStore {
 
   async getHandoff(code) {
     if (!code) return null;
+    await this.ensureConnected();
     const key = this.handoffKey(code);
     const raw = await this.client.get(key);
     if (!raw) return null;
@@ -223,6 +289,7 @@ export class RedisSessionStore {
 
   async deleteHandoff(code) {
     if (!code) return false;
+    await this.ensureConnected();
     const key = this.handoffKey(code);
     const count = await this.client.del(key);
     return count > 0;
@@ -264,7 +331,8 @@ export function createSessionStore(options = {}) {
         ...options.redisOptions,
       });
       client.on('error', err => {
-        console.error('[Redis error]', err?.message ?? err);
+        const safeMsg = (err?.message ?? String(err)).replace(/:\/\/([^:]+):([^@]+)@/g, '://***:***@');
+        console.error('[Redis error]', safeMsg);
       });
       return new RedisSessionStore(client, { ...options, isInMemory: false });
     } catch (err) {
