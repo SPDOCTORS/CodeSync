@@ -56,6 +56,7 @@ async function authorize(): Promise<{ ok: boolean; error?: string; message?: str
   if (!exchange.ok) return { ok: false, error: `The authorization server rejected the sign-in response (${exchange.status}): ${(await exchange.text()).slice(0, 300)}` };
   const payload = await exchange.json() as { sessionToken?: unknown };
   if (typeof payload.sessionToken !== 'string') return { ok: false, error: 'The authorization server returned no session.' };
+  await chrome.storage.local.set({ backendSession: payload.sessionToken });
   await chrome.storage.session.set({ backendSession: payload.sessionToken });
   await chrome.storage.session.remove('oauthState');
   if (settings?.repository) {
@@ -91,6 +92,7 @@ async function checkAuthentication(): Promise<{ ok: boolean; authenticated: bool
   } catch (error) {
     if (error instanceof GitHubRequestError && error.status === 401) {
       await chrome.storage.session.remove('backendSession');
+      await chrome.storage.local.remove('backendSession');
       await processQueue();
       return { ok: true, authenticated: false, message: 'GitHub session expired after the backend restarted. Sign in again; queued submissions are preserved.' };
     }

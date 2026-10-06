@@ -53,6 +53,8 @@ export class GitHubService {
 
 export async function githubService(settings: Settings): Promise<GitHubService | null> {
   const baseUrl = normalizeAuthorizationServer(settings.authorizationServer);
-  const { backendSession } = await chrome.storage.session.get('backendSession');
+  const local = await chrome.storage.local.get('backendSession') as { backendSession?: string };
+  const session = await chrome.storage.session.get('backendSession') as { backendSession?: string };
+  const backendSession = local.backendSession ?? session.backendSession;
   return baseUrl && typeof backendSession === 'string' ? new GitHubService(baseUrl, backendSession) : null;
 }
