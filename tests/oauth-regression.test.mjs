@@ -49,7 +49,15 @@ test('permission request remains in the settings user gesture and service worker
   assert.match(options, /await chrome\.permissions\.request\(\{ origins: \[`\$\{next\.authorizationServer\}\/\*`\] \}\)/);
   assert.doesNotMatch(background, /chrome\.permissions\.request/);
   assert.match(background, /await chrome\.permissions\.contains/);
-  assert.match(manifest, /"http:\/\/localhost:8787\/\*"/);
+  assert.match(manifest, /"https:\/\/code-sync-rho-brown\.vercel\.app\/\*"/);
+  assert.doesNotMatch(manifest, /"http:\/\/localhost:8787\/\*"/);
+  assert.doesNotMatch(manifest, /"https:\/\/\*\/\*"/);
+});
+
+test('default settings provide the production authorization server URL and preserve localhost code support', async () => {
+  const [types, options] = await Promise.all([read('src/lib/types.ts'), read('src/options/App.tsx')]);
+  assert.match(types, /authorizationServer:\s*'https:\/\/code-sync-rho-brown\.vercel\.app'/);
+  assert.match(options, /http:\/\/localhost:8787/);
 });
 
 test('backend keeps the chromiumapp redirect restriction and localhost-only HTTP exception', async () => {

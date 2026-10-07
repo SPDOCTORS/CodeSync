@@ -4,8 +4,11 @@
   "version": "0.2.0",
   "description": "Organize accepted competitive programming submissions on GitHub.",
   "permissions": ["storage", "identity", "alarms", "tabs", "scripting"],
-  "host_permissions": ["https://leetcode.com/*", "https://www.leetcode.com/*"],
-  "optional_host_permissions": ["https://*/*", "http://localhost:8787/*"],
+  "host_permissions": [
+    "https://leetcode.com/*",
+    "https://www.leetcode.com/*",
+    "https://code-sync-rho-brown.vercel.app/*"
+  ],
   "action": {"default_popup": "popup.html", "default_title": "CodeSync"},
   "options_page": "options.html",
   "background": {"service_worker": "assets/background.js", "type": "module"},

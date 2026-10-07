@@ -34,6 +34,6 @@ export interface SyncStatus {
 export interface QueueItem { submission: Submission; attempts: number; nextAttemptAt: number; permanentlyFailed?: boolean; lastError?: string; }
 export interface SyncDiagnostic { at: string; stage: 'enqueued' | 'commit-attempt' | 'commit-confirmed' | 'retry-scheduled' | 'permanently-failed' | 'session-missing'; submissionKey?: string; message: string; }
 export const DEFAULT_SETTINGS: Settings = {
-  enabled: true, repository: '', commitEveryAccepted: true, importHistory: false, authorizationServer: ''
+  enabled: true, repository: '', commitEveryAccepted: true, importHistory: false, authorizationServer: 'https://code-sync-rho-brown.vercel.app'
 };
 export const DEFAULT_SYNC_STATUS: SyncStatus = { state: 'idle', message: 'GitHub is not connected.', pending: 0 };
