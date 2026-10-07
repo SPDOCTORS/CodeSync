@@ -2,7 +2,6 @@ import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATUS, type Settings, type Submission }
 import { normalizeAuthorizationServer } from '../lib/github';
 import { GitHubRequestError, githubService, normalizeRepository } from '../lib/github';
 import { enqueueAcceptedSubmission, processQueue, repairQueueLanguages, retryFailedSubmissions, runConnectionTest } from './sync';
-Object.assign(globalThis, { repairQueueLanguages });
 
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.local.get('settings');
