@@ -70,12 +70,20 @@ test('development connection test is local-only, targets only the test path, and
   const [options, sync, background] = await Promise.all([read('src/options/App.tsx'), read('src/background/sync.ts'), read('src/background/index.ts')]);
   assert.match(options, /normalizeAuthorizationServer\(settings\.authorizationServer\) === 'http:\/\/localhost:8787'/);
   assert.match(options, /Test GitHub Commit/);
-  assert.match(sync, /CONNECTION_TEST_REPOSITORY = 'SPDOCTORS\/Competitive-Programming'/);
   assert.match(sync, /CONNECTION_TEST_PATH = 'CodeSync-Tests\/connection-test\.txt'/);
   assert.match(sync, /CONNECTION_TEST_CONTENT = 'CodeSync GitHub integration test'/);
   assert.match(sync, /completedConnectionTests/);
   assert.match(sync, /No SHA is supplied, so GitHub rejects an existing file rather than overwriting it/);
   assert.match(background, /CODESYNC_TEST_GITHUB_COMMIT/);
+});
+
+test('connection tests and UI remove hardcoded SPDOCTORS repository assumptions', async () => {
+  const [options, sync] = await Promise.all([read('src/options/App.tsx'), read('src/background/sync.ts')]);
+  assert.doesNotMatch(sync, /SPDOCTORS/);
+  assert.doesNotMatch(options, /SPDOCTORS/);
+  assert.match(sync, /current\.settings\?\.repository/);
+  assert.match(sync, /listRepositories/);
+  assert.match(options, /Competitive-Programming already exists\. Use Select existing or enter/);
 });
 
 test('LeetCode history import is explicit, paginated, rate limited, and sent through the existing queue', async () => {

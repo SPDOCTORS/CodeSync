@@ -5,7 +5,7 @@ import { getProblemRating } from '../lib/codeforces-rating';
 
 const QUEUE_KEY = 'syncQueue'; const STATUS_KEY = 'syncStatus'; const COMPLETED_KEY = 'completedSubmissionKeys'; const DIAGNOSTICS_KEY = 'syncDiagnostics';
 const MAX_ATTEMPTS = 5; const MAX_DIAGNOSTICS = 100;
-const CONNECTION_TEST_REPOSITORY = 'SPDOCTORS/Competitive-Programming'; const CONNECTION_TEST_PATH = 'CodeSync-Tests/connection-test.txt'; const CONNECTION_TEST_CONTENT = 'CodeSync GitHub integration test'; const CONNECTION_TEST_KEY = 'completedConnectionTests';
+const CONNECTION_TEST_PATH = 'CodeSync-Tests/connection-test.txt'; const CONNECTION_TEST_CONTENT = 'CodeSync GitHub integration test'; const CONNECTION_TEST_KEY = 'completedConnectionTests';
 let processing: Promise<void> | null = null;
 async function state() { const stored = await chrome.storage.local.get([QUEUE_KEY, STATUS_KEY, COMPLETED_KEY, 'settings']); return { queue: (stored[QUEUE_KEY] as QueueItem[] | undefined) ?? [], completed: new Set((stored[COMPLETED_KEY] as string[] | undefined) ?? []), settings: stored.settings as Settings }; }
 async function diagnostic(entry: Omit<SyncDiagnostic, 'at'>) { const stored = await chrome.storage.local.get(DIAGNOSTICS_KEY); const next = [...((stored[DIAGNOSTICS_KEY] as SyncDiagnostic[] | undefined) ?? []), { ...entry, at: new Date().toISOString() }].slice(-MAX_DIAGNOSTICS); await chrome.storage.local.set({ [DIAGNOSTICS_KEY]: next }); }
@@ -87,13 +87,30 @@ async function process(): Promise<void> {
 export async function retryFailedSubmissions(): Promise<{ ok: boolean; message: string }> { const current = await state(); const failed = current.queue.filter(item => item.permanentlyFailed); if (!failed.length) return { ok: false, message: 'There are no permanently failed submissions to retry.' }; failed.forEach(item => { item.permanentlyFailed = false; item.attempts = 0; item.lastError = undefined; item.nextAttemptAt = Date.now(); }); await chrome.storage.local.set({ [QUEUE_KEY]: current.queue }); await processQueue(); return { ok: true, message: `Retrying ${failed.length} failed submission${failed.length === 1 ? '' : 's'}.` }; }
 
 export async function runConnectionTest(): Promise<{ ok: boolean; message: string }> {
-  const current = await state(); const repository = current.settings?.repository;
-  if (repository?.toLowerCase() !== CONNECTION_TEST_REPOSITORY.toLowerCase()) return { ok: false, message: `Set the repository to ${CONNECTION_TEST_REPOSITORY} before running the connection test.` };
-  const previous = new Set((await chrome.storage.local.get(CONNECTION_TEST_KEY))[CONNECTION_TEST_KEY] as string[] | undefined ?? []); if (previous.has(repository)) return { ok: false, message: 'This browser has already created the GitHub connection test commit for this repository.' };
-  const service = await githubService(current.settings); if (!service) return { ok: false, message: 'Sign in with GitHub before running the connection test.' };
+  const current = await state();
+  const service = await githubService(current.settings);
+  if (!service) return { ok: false, message: 'Sign in with GitHub before running the connection test.' };
+  let repository = current.settings?.repository?.trim();
+  if (!repository) {
+    try {
+      const repos = await service.listRepositories();
+      const defaultRepo = repos.find(r => /(?:^|\/)Competitive-Programming$/i.test(r.full_name))?.full_name ?? repos[0]?.full_name;
+      if (defaultRepo) repository = defaultRepo;
+    } catch {
+      // ignore repository listing error
+    }
+  }
+  if (!repository) return { ok: false, message: 'Set or select a GitHub repository before running the connection test.' };
+  const previous = new Set((await chrome.storage.local.get(CONNECTION_TEST_KEY))[CONNECTION_TEST_KEY] as string[] | undefined ?? []);
+  if (previous.has(repository)) return { ok: false, message: 'This browser has already created the GitHub connection test commit for this repository.' };
   try { // No SHA is supplied, so GitHub rejects an existing file rather than overwriting it.
-    await service.commit(repository, CONNECTION_TEST_PATH, CONNECTION_TEST_CONTENT, 'CodeSync: GitHub connection test'); previous.add(repository); await chrome.storage.local.set({ [CONNECTION_TEST_KEY]: [...previous] }); return { ok: true, message: 'GitHub connection test commit created.' }; }
-  catch (error) { return { ok: false, message: `GitHub connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}` }; }
+    await service.commit(repository, CONNECTION_TEST_PATH, CONNECTION_TEST_CONTENT, 'CodeSync: GitHub connection test');
+    previous.add(repository);
+    await chrome.storage.local.set({ [CONNECTION_TEST_KEY]: [...previous] });
+    return { ok: true, message: 'GitHub connection test commit created.' };
+  } catch (error) {
+    return { ok: false, message: `GitHub connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
 }
 
 /**
