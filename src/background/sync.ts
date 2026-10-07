@@ -4,11 +4,30 @@ import { DEFAULT_SYNC_STATUS, type QueueItem, type Settings, type Submission, ty
 import { getProblemRating } from '../lib/codeforces-rating';
 
 const QUEUE_KEY = 'syncQueue'; const STATUS_KEY = 'syncStatus'; const COMPLETED_KEY = 'completedSubmissionKeys'; const DIAGNOSTICS_KEY = 'syncDiagnostics';
-const MAX_ATTEMPTS = 5; const MAX_DIAGNOSTICS = 100;
+const RECENT_ACTIVITY_KEY = 'recentActivity';
+const MAX_ATTEMPTS = 5; const MAX_DIAGNOSTICS = 100; const MAX_RECENT_ACTIVITY = 20;
 const CONNECTION_TEST_PATH = 'CodeSync-Tests/connection-test.txt'; const CONNECTION_TEST_CONTENT = 'CodeSync GitHub integration test'; const CONNECTION_TEST_KEY = 'completedConnectionTests';
 let processing: Promise<void> | null = null;
 async function state() { const stored = await chrome.storage.local.get([QUEUE_KEY, STATUS_KEY, COMPLETED_KEY, 'settings']); return { queue: (stored[QUEUE_KEY] as QueueItem[] | undefined) ?? [], completed: new Set((stored[COMPLETED_KEY] as string[] | undefined) ?? []), settings: stored.settings as Settings }; }
 async function diagnostic(entry: Omit<SyncDiagnostic, 'at'>) { const stored = await chrome.storage.local.get(DIAGNOSTICS_KEY); const next = [...((stored[DIAGNOSTICS_KEY] as SyncDiagnostic[] | undefined) ?? []), { ...entry, at: new Date().toISOString() }].slice(-MAX_DIAGNOSTICS); await chrome.storage.local.set({ [DIAGNOSTICS_KEY]: next }); }
+export async function recordRecentActivity(submission: Submission, syncedAt: string = new Date().toISOString()): Promise<void> {
+  const stored = await chrome.storage.local.get(RECENT_ACTIVITY_KEY);
+  const current = (stored[RECENT_ACTIVITY_KEY] as Array<Record<string, unknown>> | undefined) ?? [];
+  const entry: Record<string, unknown> = {
+    platform: submission.platform,
+    problemId: submission.problemId,
+    problemTitle: submission.problemTitle,
+    submissionId: submission.submissionId,
+    language: submission.language,
+    submittedAt: submission.submittedAt,
+    syncedAt,
+  };
+  if (submission.problemUrl) {
+    entry.problemUrl = submission.problemUrl;
+  }
+  const next = [entry, ...current].slice(0, MAX_RECENT_ACTIVITY);
+  await chrome.storage.local.set({ [RECENT_ACTIVITY_KEY]: next });
+}
 function counts(queue: QueueItem[], completed: Set<string>) { return { pending: queue.filter(item => !item.permanentlyFailed && item.attempts === 0).length, retrying: queue.filter(item => !item.permanentlyFailed && item.attempts > 0).length, committed: completed.size, permanentlyFailed: queue.filter(item => item.permanentlyFailed).length }; }
 async function status(queue: QueueItem[], completed: Set<string>, state: SyncStatus['state'], message: string, latestGitHubError?: string) { const metrics = counts(queue, completed); await chrome.storage.local.set({ [STATUS_KEY]: { state, message, pending: metrics.pending + metrics.retrying, counts: metrics, latestGitHubError } satisfies SyncStatus }); }
 
@@ -54,6 +73,7 @@ async function process(): Promise<void> {
       const fresh = await state();
       queue = fresh.queue.filter(candidate => submissionKey(candidate.submission) !== key);
       await chrome.storage.local.set({ [QUEUE_KEY]: queue, [COMPLETED_KEY]: [...completed] });
+      await recordRecentActivity(s);
       await diagnostic({ stage: 'commit-confirmed', submissionKey: key, message: 'GitHub confirmed the file commit.' });
     }
     catch (error) {

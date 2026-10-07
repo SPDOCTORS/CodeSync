@@ -32,6 +32,16 @@ export interface SyncStatus {
   latestGitHubError?: string;
 }
 export interface QueueItem { submission: Submission; attempts: number; nextAttemptAt: number; permanentlyFailed?: boolean; lastError?: string; }
+export interface RecentActivityItem {
+  platform: Platform;
+  problemId: string;
+  problemTitle: string;
+  submissionId: string;
+  language: string;
+  submittedAt: string;
+  syncedAt: string;
+  problemUrl?: string;
+}
 export interface SyncDiagnostic { at: string; stage: 'enqueued' | 'commit-attempt' | 'commit-confirmed' | 'retry-scheduled' | 'permanently-failed' | 'session-missing'; submissionKey?: string; message: string; }
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true, repository: '', commitEveryAccepted: true, importHistory: false, authorizationServer: 'https://code-sync-rho-brown.vercel.app'
