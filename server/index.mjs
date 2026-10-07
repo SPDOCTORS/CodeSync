@@ -42,7 +42,27 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 const body = req => new Promise((resolve, reject) => { let raw=''; req.on('data', chunk => raw += chunk); req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('Invalid JSON')); } }); req.on('error', reject); });
 const github = async (path, init, accessToken, fetchFn = fetch) => { const response = await fetchFn(`https://api.github.com${path}`, { ...init, headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${accessToken}`, 'x-github-api-version': '2022-11-28', ...(init?.headers ?? {}) } }); if (response.status === 401) { const err = new Error('GitHub token revoked or expired.'); err.status = 401; throw err; } if (!response.ok) throw new Error((await response.text()) || `GitHub API error ${response.status}`); return response.status === 204 ? null : response.json(); };
 const auth = async req => { const match = req.headers.authorization?.match(/^Bearer (.+)$/); return match ? await sessionStore.getSession(match[1]) : null; };
-const validRepo = value => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+export const validRepo = value => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+
+export function validPath(path) {
+  if (typeof path !== 'string') return false;
+  const trimmed = path.trim();
+  if (!trimmed || trimmed !== path) return false;
+  if (path.startsWith('/') || path.startsWith('\\')) return false;
+  if (path.includes('\\')) return false;
+  const segments = path.split('/');
+  for (const seg of segments) {
+    if (!seg || seg === '.' || seg === '..') return false;
+    try {
+      const decoded = decodeURIComponent(seg).trim();
+      if (!decoded || decoded === '.' || decoded === '..') return false;
+      if (decoded.includes('/') || decoded.includes('\\')) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
 
 export function createRequestHandler({ baseUrl: base = baseUrl, store = sessionStore, fetchFn = fetch } = {}) {
   return async (req, res) => {
@@ -118,7 +138,7 @@ export function createRequestHandler({ baseUrl: base = baseUrl, store = sessionS
       if (req.method === 'GET' && repositoryMatch) { const repository = decodeURIComponent(repositoryMatch[1]); if (!validRepo(repository)) return json(res, 400, { error: 'Invalid repository.' }); const repo = await github(`/repos/${repository}`, undefined, session.githubToken, fetchFn); return json(res, 200, { full_name: repo.full_name, private: repo.private }); }
       if (req.method === 'POST' && url.pathname === '/v1/github/repos') { const repo = await github('/user/repos', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Competitive-Programming', private: true, auto_init: true, description: 'Competitive programming submissions synchronized by CodeSync' }) }, session.githubToken, fetchFn); return json(res, 201, { full_name: repo.full_name }); }
       const matchPath = url.pathname.match(/^\/v1\/github\/repos\/([^/]+)\/contents$/);
-      if (req.method === 'PUT' && matchPath) { const repository = decodeURIComponent(matchPath[1]); if (!validRepo(repository)) return json(res, 400, { error: 'Invalid repository.' }); const { path, content, message } = await body(req); if (typeof path !== 'string' || typeof content !== 'string' || typeof message !== 'string') return json(res, 400, { error: 'Invalid commit request.' }); const encodedPath = path.split('/').map(encodeURIComponent).join('/'); const existing = await fetchFn(`https://api.github.com/repos/${repository}/contents/${encodedPath}`, { headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${session.githubToken}`, 'x-github-api-version': '2022-11-28' } }); const existingSha = existing.status === 200 ? (await existing.json()).sha : undefined; await github(`/repos/${repository}/contents/${encodedPath}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(existingSha ? { sha: existingSha } : {}) }) }, session.githubToken, fetchFn); return json(res, 201, { ok: true }); }
+      if (req.method === 'PUT' && matchPath) { const repository = decodeURIComponent(matchPath[1]); if (!validRepo(repository)) return json(res, 400, { error: 'Invalid repository.' }); const { path, content, message } = await body(req); if (typeof path !== 'string' || typeof content !== 'string' || typeof message !== 'string') return json(res, 400, { error: 'Invalid commit request.' }); if (!validPath(path)) return json(res, 400, { error: 'Invalid file path.' }); const encodedPath = path.split('/').map(encodeURIComponent).join('/'); const existing = await fetchFn(`https://api.github.com/repos/${repository}/contents/${encodedPath}`, { headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${session.githubToken}`, 'x-github-api-version': '2022-11-28' } }); const existingSha = existing.status === 200 ? (await existing.json()).sha : undefined; await github(`/repos/${repository}/contents/${encodedPath}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(existingSha ? { sha: existingSha } : {}) }) }, session.githubToken, fetchFn); return json(res, 201, { ok: true }); }
       return json(res, 404, { error: 'Not found.' });
     } catch (error) {
       if (error && error.status === 401) {
