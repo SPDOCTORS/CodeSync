@@ -1,4 +1,4 @@
-# CodeSync — Phase 3
+# CommitFlow
 
 Chrome Manifest V3 extension for organizing competitive-programming submissions in GitHub. Phase 3 adds a LeetCode Accepted-submission adapter while preserving the GitHub authorization, queue, retry, and deduplication foundation.
 
@@ -6,7 +6,7 @@ Chrome Manifest V3 extension for organizing competitive-programming submissions 
 
 The extension never includes a GitHub client secret or personal access token. `server/index.mjs` is a deployable OAuth backend that keeps the GitHub OAuth access token on the server. After the browser OAuth flow, it gives the extension a random, one-hour opaque session token held in `chrome.storage.session`; that token can only call the backend proxy.
 
-The OAuth flow checks a random state, uses one-time authorization handoffs, and restricts the final callback to the extension's `chromiumapp.org` redirect URL. Deployed backends require HTTPS. The only HTTP exception is the exact local-development origin `http://localhost:8787`. The GitHub OAuth application needs the `repo` scope only because users may select private repositories and CodeSync must create and write repository contents. The Chrome extension requests `storage`, `identity`, and `alarms`; access to the selected backend is requested at sign-in.
+The OAuth flow checks a random state, uses one-time authorization handoffs, and restricts the final callback to the extension's `chromiumapp.org` redirect URL. Deployed backends require HTTPS. The only HTTP exception is the exact local-development origin `http://localhost:8787`. The GitHub OAuth application needs the `repo` scope only because users may select private repositories and CommitFlow must create and write repository contents. The Chrome extension requests `storage`, `identity`, and `alarms`; access to the selected backend is requested at sign-in.
 
 ## Setup
 
@@ -32,11 +32,11 @@ The OAuth flow checks a random state, uses one-time authorization handoffs, and 
    `.env` and `.env.*` are ignored by Git. If you use a local environment file, load it through your deployment or shell tooling; `server/index.mjs` intentionally does not read secrets from extension assets.
 4. Run `npm install` and `npm run build` in this folder.
 5. Load `dist` from `chrome://extensions` with Developer mode enabled.
-6. Open CodeSync settings, enter the HTTPS backend URL, or the exact local development URL `http://localhost:8787`, and choose **Sign in with GitHub**. Then create the private `Competitive-Programming` repository or select an existing one. Repository input accepts `owner/repo`, `https://github.com/owner/repo`, and `.git` URL variants.
+6. Open CommitFlow settings, enter the HTTPS backend URL, or the exact local development URL `http://localhost:8787`, and choose **Sign in with GitHub**. Then create the private `Competitive-Programming` repository or select an existing one. Repository input accepts `owner/repo`, `https://github.com/owner/repo`, and `.git` URL variants.
 
 ### Development connection test
 
-When the authorization server is exactly `http://localhost:8787`, Settings shows **Test GitHub Commit**. It is available only after an explicit click and only when the configured repository is `SPDOCTORS/Competitive-Programming`. It creates `CodeSync-Tests/connection-test.txt` containing `CodeSync GitHub integration test`. The request uses the existing backend session; no credentials are added to the extension. CodeSync records a successful test locally and never provides a file SHA, so it cannot overwrite an existing test file or any solution.
+When the authorization server is exactly `http://localhost:8787`, Settings shows **Test GitHub Commit**. It is available only after an explicit click and only when the configured repository is `SPDOCTORS/Competitive-Programming`. It creates `CodeSync-Tests/connection-test.txt` containing `CodeSync GitHub integration test`. The request uses the existing backend session; no credentials are added to the extension. CommitFlow records a successful test locally and never provides a file SHA, so it cannot overwrite an existing test file or any solution.
 
 ## Synchronization behavior
 
@@ -58,7 +58,7 @@ Every queued LeetCode path is `LeetCode/<primary-topic>/<problem-id>-<title>-<su
 
 To import history, first enable and save **Enable historical import from the signed-in LeetCode tab**, open an authenticated `leetcode.com` tab, then click **Import LeetCode history**. The adapter pages through submissions 20 at a time, inspects only Accepted entries, and delays requests by at least 750 ms. Progress and adapter errors appear in the popup status.
 
-The import accepts both `leetcode.com` and `www.leetcode.com`. Before importing, CodeSync sends a ready handshake to the content script. If a matching tab was already open when the extension was reloaded, CodeSync injects only its packaged LeetCode adapter into that permitted tab and repeats the handshake. If either step fails, Settings explains whether to open or refresh the tab.
+The import accepts both `leetcode.com` and `www.leetcode.com`. Before importing, CommitFlow sends a ready handshake to the content script. If a matching tab was already open when the extension was reloaded, CommitFlow injects only its packaged LeetCode adapter into that permitted tab and repeats the handshake. If either step fails, Settings explains whether to open or refresh the tab.
 
 ## Current limitations
 

@@ -10,9 +10,9 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 async function send(type: string, payload: Record<string, unknown> = {}): Promise<Reply> {
   try {
     const response: unknown = await chrome.runtime.sendMessage({ type, ...payload });
-    if (!isReply(response)) return { ok: false, error: 'CodeSync did not receive a response from its service worker. Reload the extension and try again.' };
+    if (!isReply(response)) return { ok: false, error: 'CommitFlow did not receive a response from its service worker. Reload the extension and try again.' };
     return response;
-  } catch (error) { return { ok: false, error: `Could not contact CodeSync: ${errorMessage(error)}` }; }
+  } catch (error) { return { ok: false, error: `Could not contact CommitFlow: ${errorMessage(error)}` }; }
 }
 
 export default function App() {
@@ -43,7 +43,7 @@ export default function App() {
     try {
       // This must run in the settings page's click handler: Chrome permission prompts require a user gesture.
       const granted = await chrome.permissions.request({ origins: [`${next.authorizationServer}/*`] });
-      if (!granted) { setNotice('CodeSync needs access to the selected authorization server to sign in.'); return; }
+      if (!granted) { setNotice('CommitFlow needs access to the selected authorization server to sign in.'); return; }
     } catch (error) { setNotice(`Chrome could not grant backend access: ${errorMessage(error)}`); return; }
     const reply = await send('CODESYNC_AUTH'); setNotice(reply.ok ? reply.message ?? 'GitHub connected.' : reply.error ?? 'Sign-in failed.');
   }
@@ -73,8 +73,8 @@ export default function App() {
   async function selectRepository(repository: string) { await useRepository(repository); }
   async function testGitHubCommit() { setTestingCommit(true); const reply = await send('CODESYNC_TEST_GITHUB_COMMIT'); setNotice(reply.message ?? reply.error ?? 'GitHub connection test failed.'); setTestingCommit(false); }
   async function importLeetCodeHistory() { const next = await save(); if (!next?.importHistory) { if (next) setNotice('Enable historical import before starting a LeetCode import.'); return; } setImportingHistory(true); const reply = await send('CODESYNC_IMPORT_LEETCODE_HISTORY'); setNotice(reply.message ?? reply.error ?? 'LeetCode history import failed.'); setImportingHistory(false); }
-  return <main className="wide"><h1>⚡ CodeSync settings</h1><p>GitHub authorization is completed by your configured backend. The extension never contains a GitHub secret or access token.</p>
-    <section><label htmlFor="server">Authorization server</label><input id="server" value={settings.authorizationServer} placeholder="https://codesync.example.com or http://localhost:8787" onChange={e => { setSettings({ ...settings, authorizationServer: e.target.value }); setNotice(''); }} /><button onClick={() => void signIn()}>Sign in with GitHub</button></section>
+  return <main className="wide"><h1>CommitFlow settings</h1><p>GitHub authorization is completed by your configured backend. The extension never contains a GitHub secret or access token.</p>
+    <section><label htmlFor="server">Authorization server</label><input id="server" value={settings.authorizationServer} placeholder="https://commitflow.example.com or http://localhost:8787" onChange={e => { setSettings({ ...settings, authorizationServer: e.target.value }); setNotice(''); }} /><button onClick={() => void signIn()}>Sign in with GitHub</button></section>
     <section><label htmlFor="repo">GitHub repository</label><input id="repo" value={settings.repository} placeholder="owner/Competitive-Programming or https://github.com/owner/repo" onChange={e => { setSettings({ ...settings, repository: e.target.value }); setNotice(''); }} /><div className="buttons"><button onClick={() => void useRepository()}>Use this repository</button><button onClick={() => void loadRepos()} disabled={repositoryLoadState === 'loading'}>{repositoryLoadState === 'loading' ? 'Loading repositories…' : 'Select existing'}</button><button onClick={() => void createRepo()}>Create Competitive-Programming</button></div>{repositoryLoadState === 'loaded' && <select aria-label="Existing repositories" value="" onChange={e => { if (e.target.value) void selectRepository(e.target.value); }}><option value="">Choose a repository…</option>{repos.map(repo => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}{repo.private ? ' (private)' : ''}</option>)}</select>}{repositoryLoadState === 'empty' && <p role="status">No accessible repositories were returned. Enter an owner/repo value above and choose Use this repository.</p>}{repositoryLoadState === 'error' && <p role="alert">Could not load repositories: {repositoryLoadError}</p>}{isLocalDevelopment && <section><strong>Development only</strong><p>Creates one synthetic file in {settings.repository || 'the configured repository'}. It never touches solution folders.</p><button disabled={testingCommit} onClick={() => void testGitHubCommit()}>{testingCommit ? 'Testing GitHub…' : 'Test GitHub Commit'}</button></section>}<label><input type="checkbox" checked={settings.importHistory} onChange={e => { setSettings({ ...settings, importHistory: e.target.checked }); setNotice(''); }} /> Enable historical import from the signed-in LeetCode tab</label>{settings.importHistory && <button disabled={importingHistory} onClick={() => void importLeetCodeHistory()}>{importingHistory ? 'Importing LeetCode history…' : 'Import LeetCode history'}</button>}<button onClick={() => void save()}>Save settings</button>{notice && <p role="status">{notice}</p>}</section>
     <section><strong>Synchronization status</strong><p role="status">{syncStatus.message}</p>{syncStatus.pending > 0 && <p>{syncStatus.pending} submission{syncStatus.pending === 1 ? '' : 's'} queued for GitHub.</p>}</section>
     <section><strong>Submission capture</strong><p>Automatic synchronization is active for verified Accepted submissions across LeetCode, Codeforces, CodeChef, CSES, and AtCoder.</p></section>
