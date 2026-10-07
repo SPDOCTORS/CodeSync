@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { normalizeAuthorizationServer, normalizeRepository } from '../lib/github';
-import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATUS, type Settings, type SyncStatus } from '../lib/types';
+import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATUS, type RecentActivityItem, type Settings, type SyncStatus } from '../lib/types';
 import './style.css';
 
 type Reply = {
@@ -30,7 +30,23 @@ async function send(type: string, payload: Record<string, unknown> = {}): Promis
   }
 }
 
-
+function formatRelativeTime(dateString: string): string {
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diffSec < 60) return 'just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return dateString;
+  }
+}
 
 function CommitFlowIcon() {
   return (
@@ -52,8 +68,10 @@ function GitHubIcon() {
 }
 
 export default function App() {
+  const [currentView, setCurrentView] = useState<'main' | 'activity'>('main');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [status, setStatus] = useState<SyncStatus>(DEFAULT_SYNC_STATUS);
+  const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [repos, setRepos] = useState<Array<{ full_name: string; private: boolean }>>([]);
   const [repoLoadState, setRepoLoadState] = useState<RepositoryLoadState>('idle');
@@ -62,9 +80,10 @@ export default function App() {
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
-    void chrome.storage.local.get(['settings', 'syncStatus', 'backendSession']).then(data => {
+    void chrome.storage.local.get(['settings', 'syncStatus', 'backendSession', 'recentActivity']).then(data => {
       setSettings(data.settings ?? DEFAULT_SETTINGS);
       setStatus(data.syncStatus ?? DEFAULT_SYNC_STATUS);
+      setRecentActivity((data.recentActivity as RecentActivityItem[] | undefined) ?? []);
       if (data.backendSession) setAuthenticated(true);
       else setAuthenticated(false);
     });
@@ -78,6 +97,7 @@ export default function App() {
         if (changes.settings?.newValue) setSettings(changes.settings.newValue as Settings);
         if (changes.syncStatus?.newValue) setStatus(changes.syncStatus.newValue as SyncStatus);
         if (changes.backendSession) setAuthenticated(Boolean(changes.backendSession.newValue));
+        if (changes.recentActivity?.newValue) setRecentActivity(changes.recentActivity.newValue as RecentActivityItem[]);
       }
     };
     chrome.storage.onChanged.addListener(onChanged);
@@ -306,6 +326,79 @@ export default function App() {
   const isQueueHealthy = counts.pending === 0 && counts.retrying === 0 && counts.permanentlyFailed === 0;
   const isSyncing = status.state === 'syncing' || /syncing/i.test(status.message);
 
+  if (currentView === 'activity') {
+    return (
+      <main className="activity-view">
+        <header className="popup-header activity-header">
+          <div className="activity-title-row">
+            <button
+              type="button"
+              className="btn-back"
+              onClick={() => setCurrentView('main')}
+              aria-label="Back to main view"
+            >
+              ←
+            </button>
+            <h1 className="activity-heading">Recent activity</h1>
+          </div>
+          <span className="pill pill-version">{recentActivity.length}</span>
+        </header>
+
+        {recentActivity.length === 0 ? (
+          <div className="activity-empty-state">
+            <div className="empty-title">No recent activity yet</div>
+            <p className="empty-desc">
+              Accepted solutions from LeetCode, Codeforces, CodeChef, CSES, or AtCoder will appear here after syncing to GitHub.
+            </p>
+          </div>
+        ) : (
+          <div className="activity-list">
+            {recentActivity.map(item => (
+              <div key={`${item.platform}:${item.submissionId}`} className="activity-item">
+                <div className="activity-item-top">
+                  <div className="activity-problem-wrap">
+                    <span className="activity-status-dot" title="Synced to GitHub" />
+                    {item.problemUrl ? (
+                      <a
+                        href={item.problemUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="activity-problem-link"
+                        title={item.problemTitle}
+                      >
+                        {item.problemTitle}
+                      </a>
+                    ) : (
+                      <span className="activity-problem-title" title={item.problemTitle}>
+                        {item.problemTitle}
+                      </span>
+                    )}
+                  </div>
+                  <span className="activity-time">{formatRelativeTime(item.syncedAt)}</span>
+                </div>
+                <div className="activity-item-bottom">
+                  <span className={`activity-platform-pill pill-${item.platform}`}>
+                    {item.platform === 'leetcode'
+                      ? 'LeetCode'
+                      : item.platform === 'codeforces'
+                        ? 'Codeforces'
+                        : item.platform === 'codechef'
+                          ? 'CodeChef'
+                          : item.platform === 'cses'
+                            ? 'CSES'
+                            : 'AtCoder'}
+                  </span>
+                  <span className="activity-meta-dot">·</span>
+                  <span className="activity-lang">{item.language}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    );
+  }
+
   return (
     <main>
       {/* 1. Header */}
@@ -490,7 +583,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="activity-summary-row">
+        <div className="activity-summary-row between">
           <span className="stats-summary">
             {isQueueHealthy ? (
               <span>{counts.committed} solutions synced</span>
@@ -503,6 +596,13 @@ export default function App() {
               </>
             )}
           </span>
+          <button
+            type="button"
+            className="btn-text btn-activity-link"
+            onClick={() => setCurrentView('activity')}
+          >
+            View activity →
+          </button>
         </div>
 
         {(status.pending > 0 || counts.permanentlyFailed > 0) && (
