@@ -124,6 +124,13 @@ export default function App() {
     }
   }
 
+  async function disconnect() {
+    await chrome.storage.local.remove('backendSession');
+    await chrome.storage.session.remove('backendSession');
+    setAuthenticated(false);
+    setNotice('Disconnected from GitHub.');
+  }
+
   async function loadRepos() {
     setRepoLoadState('loading');
     setRepos([]);
@@ -296,6 +303,9 @@ export default function App() {
     );
   }
 
+  const isQueueHealthy = counts.pending === 0 && counts.retrying === 0 && counts.permanentlyFailed === 0;
+  const isSyncing = status.state === 'syncing' || /syncing/i.test(status.message);
+
   return (
     <main>
       {/* 1. Header */}
@@ -313,8 +323,22 @@ export default function App() {
       <div className={`status-banner status-${settings.enabled ? 'active' : 'paused'}`}>
         <div className="status-dot-pulse"></div>
         <div className="status-text-wrap">
-          <span className="status-state-lbl">{settings.enabled ? 'Syncing active' : 'Sync paused'}</span>
-          <span className="status-message-text" role="status">{status.message}</span>
+          <span className="status-state-lbl">
+            {isSyncing
+              ? 'Syncing…'
+              : !settings.enabled
+                ? 'Sync paused'
+                : isQueueHealthy
+                  ? '✓ All caught up'
+                  : 'Syncing active'}
+          </span>
+          <span className="status-message-text" role="status">
+            {isSyncing
+              ? status.message
+              : isQueueHealthy
+                ? `${counts.committed} solutions synced to GitHub`
+                : status.message}
+          </span>
         </div>
       </div>
 
@@ -332,41 +356,53 @@ export default function App() {
         </div>
       )}
 
-      {/* 3. GitHub repository */}
+      {/* 1. GitHub Account */}
       <div className="card-section">
         <div className="card-header-row">
-          <span className="card-title">GitHub repository</span>
-          {authenticated && (
-            <button
-              className="btn-text"
-              onClick={() => {
-                const nextState = !showRepoPicker;
-                setShowRepoPicker(nextState);
-                if (nextState && repoLoadState === 'idle') void loadRepos();
-              }}
-            >
-              {showRepoPicker ? 'Cancel' : (settings.repository ? 'Change' : 'Configure')}
-            </button>
-          )}
+          <span className="card-title">GitHub Account</span>
+          <span className="badge-connected">
+            <span className="indicator-dot"></span>Connected
+          </span>
         </div>
-
-        {!authenticated ? (
-          <div className="connect-row">
-            <p className="hint-text">Connect your GitHub account to sync solutions.</p>
-            <button className="btn-primary btn-sm" onClick={() => void signIn()}>
-              Connect GitHub
-            </button>
-          </div>
-        ) : (
-          <div className="repo-display-row">
-            <div className="repo-badge">
-              <span className="repo-icon">📦</span>
-              <span className="repo-name">{settings.repository || 'No repository selected'}</span>
+        <div className="account-details-row">
+          <div className="account-info">
+            <GitHubIcon />
+            <div>
+              <span className="account-name">
+                {repos[0]?.full_name?.split('/')[0] || (settings.repository ? settings.repository.split('/')[0] : 'Connected User')}
+              </span>
+              <span className="account-server">GitHub connected</span>
             </div>
           </div>
-        )}
+          <button className="btn-secondary btn-xs" onClick={() => void disconnect()}>
+            Disconnect
+          </button>
+        </div>
+      </div>
 
-        {authenticated && showRepoPicker && (
+      {/* 2. Repository */}
+      <div className="card-section">
+        <div className="card-header-row">
+          <span className="card-title">Repository</span>
+          <button
+            className="btn-text"
+            onClick={() => {
+              const nextState = !showRepoPicker;
+              setShowRepoPicker(nextState);
+              if (nextState && repoLoadState === 'idle') void loadRepos();
+            }}
+          >
+            {showRepoPicker ? 'Cancel' : (settings.repository ? 'Change' : 'Configure')}
+          </button>
+        </div>
+
+        <div className="repo-display-row">
+          <div className="repo-badge">
+            <span className="repo-name">{settings.repository || 'No repository selected'}</span>
+          </div>
+        </div>
+
+        {showRepoPicker && (
           <div className="repo-picker-box">
             <div className="repo-input-group">
               <input
@@ -417,9 +453,12 @@ export default function App() {
         )}
       </div>
 
-      {/* 4. 5 Platform cards */}
+      {/* 3. Platforms */}
       <div className="card-section">
-        <span className="card-title">Supported platforms</span>
+        <div className="card-header-row">
+          <span className="card-title">Your flow</span>
+          <span className="card-meta">5 active</span>
+        </div>
         <div className="platforms-grid">
           {platforms.map(p => (
             <div key={p.id} className="platform-card">
@@ -432,31 +471,37 @@ export default function App() {
         </div>
       </div>
 
-      {/* 5. Automatic sync */}
+      {/* 4. Automatic commit */}
       <div className="card-section">
         <div className="between">
           <div>
-            <span className="toggle-label">Automatic sync</span>
+            <span className="toggle-label">Automatic commit</span>
             <p className="toggle-sub">Commit verified Accepted solutions</p>
           </div>
           <button
-            className={`btn-toggle ${settings.enabled ? 'toggle-on' : 'toggle-off'}`}
+            type="button"
+            role="switch"
+            aria-checked={settings.enabled}
+            aria-label="Automatic commit switch"
+            className={`switch-toggle ${settings.enabled ? 'switch-on' : 'switch-off'}`}
             onClick={() => void toggle()}
           >
-            {settings.enabled ? 'Enabled' : 'Paused'}
+            <span className="switch-thumb" />
           </button>
         </div>
-      </div>
 
-      {/* 6. Activity / retry */}
-      <div className="card-section">
-        <div className="card-header-row">
-          <span className="card-title">Activity</span>
+        <div className="activity-summary-row">
           <span className="stats-summary">
-            <strong>{counts.committed}</strong> committed
-            {counts.pending > 0 && <> · <strong>{counts.pending}</strong> pending</>}
-            {counts.retrying > 0 && <> · <strong>{counts.retrying}</strong> retrying</>}
-            {counts.permanentlyFailed > 0 && <> · <strong className="text-danger">{counts.permanentlyFailed}</strong> failed</>}
+            {isQueueHealthy ? (
+              <span>{counts.committed} solutions synced</span>
+            ) : (
+              <>
+                <strong>{counts.committed}</strong> committed
+                {counts.pending > 0 && <> · <strong>{counts.pending}</strong> pending</>}
+                {counts.retrying > 0 && <> · <strong>{counts.retrying}</strong> retrying</>}
+                {counts.permanentlyFailed > 0 && <> · <strong className="text-danger">{counts.permanentlyFailed}</strong> failed</>}
+              </>
+            )}
           </span>
         </div>
 
@@ -476,15 +521,21 @@ export default function App() {
         )}
       </div>
 
-      {/* 7. Advanced settings */}
-      <footer className="popup-footer">
-        <button
-          className="btn-link"
-          onClick={() => chrome.runtime.openOptionsPage()}
-        >
-          ⚙️ Advanced settings
-        </button>
-      </footer>
+      {/* 5. Advanced */}
+      <div className="card-section card-advanced">
+        <div className="between">
+          <div>
+            <span className="toggle-label">Advanced</span>
+            <p className="toggle-sub">Historical imports, server config & tests</p>
+          </div>
+          <button
+            className="btn-outline btn-sm"
+            onClick={() => chrome.runtime.openOptionsPage()}
+          >
+            Settings →
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
