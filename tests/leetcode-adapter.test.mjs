@@ -57,3 +57,67 @@ test('history response parsing accepts nested and top-level pagination with nume
   assert.equal(topLevel.nextKey, 'cursor-3');
   assert.equal(isAcceptedHistoryRecord(topLevel.rows[0]), false);
 });
+
+test('extractProblemSlug extracts problem slug from modern problem paths', async () => {
+  const { extractProblemSlug } = await importTypeScript('src/content/leetcode-adapter.ts');
+  assert.equal(extractProblemSlug('/problems/two-sum/'), 'two-sum');
+  assert.equal(extractProblemSlug('/problems/two-sum/submissions/'), 'two-sum');
+  assert.equal(extractProblemSlug('/problems/Median-of-Two-Sorted-Arrays/description/'), 'median-of-two-sorted-arrays');
+  assert.equal(extractProblemSlug('/submissions/detail/12345/'), null);
+  assert.equal(extractProblemSlug('/explore/'), null);
+});
+
+test('extractSubmissionIdFromUrl extracts submission ID from classic and modern URLs', async () => {
+  const { extractSubmissionIdFromUrl } = await importTypeScript('src/content/leetcode-adapter.ts');
+  assert.equal(extractSubmissionIdFromUrl('/submissions/detail/123456789/'), '123456789');
+  assert.equal(extractSubmissionIdFromUrl('https://leetcode.com/submissions/detail/987654321/'), '987654321');
+  assert.equal(extractSubmissionIdFromUrl('/problems/two-sum/submissions/123456789/'), '123456789');
+  assert.equal(extractSubmissionIdFromUrl('/problems/two-sum/'), null);
+});
+
+test('parseLatestAcceptedSubmissionId parses submissionList GraphQL response', async () => {
+  const { parseLatestAcceptedSubmissionId } = await importTypeScript('src/content/leetcode-adapter.ts');
+
+  // 1. Accepted top item
+  const validResponse = {
+    data: {
+      submissionList: {
+        lastKey: 'key-123',
+        hasNext: true,
+        submissions: [
+          { id: '135792468', statusDisplay: 'Accepted', lang: 'python3' },
+          { id: '135792460', statusDisplay: 'Wrong Answer', lang: 'python3' },
+        ],
+      },
+    },
+  };
+  assert.equal(parseLatestAcceptedSubmissionId(validResponse), '135792468');
+
+  // 2. Non-accepted top item
+  const wrongAnswerResponse = {
+    data: {
+      submissionList: {
+        submissions: [
+          { id: '135792468', statusDisplay: 'Wrong Answer' },
+        ],
+      },
+    },
+  };
+  assert.equal(parseLatestAcceptedSubmissionId(wrongAnswerResponse), null);
+
+  // 3. Empty submissions list
+  const emptyResponse = {
+    data: {
+      submissionList: {
+        submissions: [],
+      },
+    },
+  };
+  assert.equal(parseLatestAcceptedSubmissionId(emptyResponse), null);
+
+  // 4. GraphQL error response or missing data
+  assert.equal(parseLatestAcceptedSubmissionId({ errors: [{ message: 'Error' }] }), null);
+  assert.equal(parseLatestAcceptedSubmissionId(null), null);
+  assert.equal(parseLatestAcceptedSubmissionId(undefined), null);
+});
+

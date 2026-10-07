@@ -1,10 +1,24 @@
-import { detailFromGraphql, hasSourceCode, historyPageFromResponse, isAcceptedHistoryRecord, isPending, submissionFromDetail, type LeetCodeDetail, type TopicTag } from './leetcode-adapter';
+import {
+  detailFromGraphql,
+  extractProblemSlug,
+  extractSubmissionIdFromUrl,
+  hasSourceCode,
+  historyPageFromResponse,
+  isAcceptedHistoryRecord,
+  isPending,
+  parseLatestAcceptedSubmissionId,
+  submissionFromDetail,
+  type LeetCodeDetail,
+  type TopicTag,
+} from './leetcode-adapter';
 
 const API_DELAY_MS = 750;
 const MAX_VERDICT_POLLS = 12;
 const HISTORY_PAGE_SIZE = 20;
 const observed = new Set<string>();
 let importing = false;
+let lastInspectedSlug = '';
+let lastInspectedTime = 0;
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 const leetCodeUrl = (path: string) => new URL(path, window.location.origin).toString();
@@ -22,9 +36,67 @@ async function detailFor(submissionId: string): Promise<{ detail: LeetCodeDetail
   return detailFromGraphql(data.submissionDetails);
 }
 function detailIdFromPage(): string | null {
-  const match = window.location.pathname.match(/\/submissions\/detail\/(\d+)/);
-  return match?.[1] ?? null;
+  // 1. Standalone URL path: /submissions/detail/<id>
+  const fromPath = extractSubmissionIdFromUrl(window.location.pathname);
+  if (fromPath) return fromPath;
+
+  // 2. Query param or hash if present
+  const queryParam = new URLSearchParams(window.location.search).get('submissionId');
+  if (queryParam && /^\d+$/.test(queryParam)) return queryParam;
+
+  // 3. Anchor in modern result pane pointing to submission details
+  const link = document.querySelector<HTMLAnchorElement>('a[href*="/submissions/detail/"]');
+  if (link?.href) {
+    const fromLink = extractSubmissionIdFromUrl(link.href);
+    if (fromLink) return fromLink;
+  }
+
+  return null;
 }
+
+/**
+ * Checks if the current page DOM displays an 'Accepted' verdict in the submission result view.
+ */
+function hasAcceptedVerdictInDom(): boolean {
+  // Modern LeetCode displays 'Accepted' in a dedicated verdict element, tab header, or data locator
+  const elements = Array.from(
+    document.querySelectorAll(
+      '[data-e2e-locator="submission-result"], [class*="result"], [data-headline], [class*="status"]'
+    )
+  );
+  for (const el of elements) {
+    const text = el.textContent?.trim();
+    if (text === 'Accepted' || (text?.startsWith('Accepted') && text.length < 30)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Queries LeetCode GraphQL for the most recent submission on this question.
+ */
+async function latestAcceptedSubmissionId(questionSlug: string): Promise<string | null> {
+  try {
+    const query = `query submissionList($offset: Int!, $limit: Int!, $lastKey: String, $questionSlug: String!) {
+      submissionList(offset: $offset, limit: $limit, lastKey: $lastKey, questionSlug: $questionSlug) {
+        submissions {
+          id
+          statusDisplay
+        }
+      }
+    }`;
+    const result = await json('/graphql/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { questionSlug, offset: 0, limit: 1 } }),
+    });
+    return parseLatestAcceptedSubmissionId(result);
+  } catch {
+    return null;
+  }
+}
+
 type QueueOutcome = 'queued' | 'already-synchronized' | 'missing-source' | 'skipped' | 'queue-failed';
 type ImportCounters = { totalRecords: number; acceptedIdentified: number; alreadySynchronized: number; missingSourceCode: number; inaccessibleOrSkipped: number; successfullyQueued: number; failedQueueOperations: number };
 const emptyCounters = (): ImportCounters => ({ totalRecords: 0, acceptedIdentified: 0, alreadySynchronized: 0, missingSourceCode: 0, inaccessibleOrSkipped: 0, successfullyQueued: 0, failedQueueOperations: 0 });
@@ -61,7 +133,22 @@ async function reportError(message: string): Promise<void> {
 }
 async function inspectPage(): Promise<void> {
   // Only the active detail route is automatic. Listing old submissions requires the explicit import action.
-  const id = detailIdFromPage(); if (!id) return;
+  // 1. Classic detail route or DOM link
+  let id = detailIdFromPage();
+
+  // 2. Modern problem page with Accepted verdict in DOM
+  const slug = extractProblemSlug(window.location.pathname);
+  if (!id && slug && hasAcceptedVerdictInDom()) {
+    const now = Date.now();
+    // Debounce GraphQL check per slug (at most once every 3 seconds per problem page)
+    if (slug !== lastInspectedSlug || now - lastInspectedTime > 3000) {
+      lastInspectedSlug = slug;
+      lastInspectedTime = now;
+      id = await latestAcceptedSubmissionId(slug);
+    }
+  }
+
+  if (!id) return;
   try { await queueAccepted(id); } catch (error) { await reportError(`LeetCode submission ${id} could not be inspected: ${error instanceof Error ? error.message : 'Unknown error'}`); }
 }
 async function importHistory(): Promise<{ ok: boolean; message: string }> {

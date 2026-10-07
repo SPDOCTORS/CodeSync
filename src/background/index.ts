@@ -6,6 +6,18 @@ import { enqueueAcceptedSubmission, processQueue, repairQueueLanguages, retryFai
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.local.get('settings');
   if (!current.settings) await chrome.storage.local.set({settings: DEFAULT_SETTINGS, syncStatus: DEFAULT_SYNC_STATUS});
+
+  // Attach LeetCode adapter to any already-open LeetCode tabs so submissions sync without manual reload
+  try {
+    const tabs = await chrome.tabs.query({ url: ['https://leetcode.com/*', 'https://www.leetcode.com/*'] });
+    for (const tab of tabs) {
+      if (tab.id != null) {
+        void ensureLeetCodeAdapter(tab.id, tab.url).catch(() => undefined);
+      }
+    }
+  } catch {
+    // Ignore tab query errors during installation
+  }
 });
 chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'codesync-retry') void processQueue(); });
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {

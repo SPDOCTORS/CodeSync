@@ -45,6 +45,36 @@ export function historyPageFromResponse(response: Record<string, unknown>): Hist
   return { rows: rows ?? [], nextKey: typeof rawNext === 'string' && rawNext ? rawNext : null };
 }
 
+/** Extracts problem title slug from /problems/<slug>/ path if present. */
+export function extractProblemSlug(pathname: string): string | null {
+  const match = pathname.match(/\/problems\/([^/?#]+)/i);
+  return match?.[1] ? match[1].toLowerCase() : null;
+}
+
+/** Extracts submission ID from detail URL or DOM anchor href. */
+export function extractSubmissionIdFromUrl(urlOrPath: string): string | null {
+  const match = urlOrPath.match(/\/submissions\/(?:detail\/)?(\d+)/i);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Parses the submissionList GraphQL query response and returns the latest accepted submission ID.
+ */
+export function parseLatestAcceptedSubmissionId(response: unknown): string | null {
+  if (!isRecord(response)) return null;
+  const data = isRecord(response.data) ? response.data : response;
+  const list = isRecord(data.submissionList) ? data.submissionList : null;
+  if (!list || !Array.isArray(list.submissions)) return null;
+  const top = list.submissions[0];
+  if (!isRecord(top)) return null;
+  const statusDisplay = String(top.statusDisplay ?? top.status ?? '').trim().toLowerCase();
+  const id = String(top.id ?? top.submissionId ?? '').trim();
+  if (statusDisplay === 'accepted' && id) {
+    return id;
+  }
+  return null;
+}
+
 /** Stable alphabetical selection keeps every adapter run on the same topic path. */
 export function primaryTopic(tags: TopicTag[] | undefined): string {
   const values = (tags ?? []).map(tag => String(tag.name ?? tag.slug ?? '').trim()).filter(Boolean);
