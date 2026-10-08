@@ -554,14 +554,14 @@ export default function App() {
       <div className="card-section">
         <div className="card-header-row">
           <span className="card-title">Your flow</span>
-          <span className="card-meta">5 active</span>
+          <span className="card-meta">5 enabled</span>
         </div>
         <div className="platforms-grid">
           {platforms.map(p => (
             <div key={p.id} className="platform-card">
               <span className="platform-name">{p.name}</span>
               <span className="platform-indicator">
-                <span className="indicator-dot"></span>Active
+                <span className="indicator-dot"></span>Enabled
               </span>
             </div>
           ))}
