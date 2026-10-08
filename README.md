@@ -1,80 +1,215 @@
-# CommitFlow
+# CommitFlow v1.0
 
-Chrome Manifest V3 extension for organizing competitive-programming submissions in GitHub. Phase 3 adds a LeetCode Accepted-submission adapter while preserving the GitHub authorization, queue, retry, and deduplication foundation.
+> **Effortless competitive programming synchronization to GitHub.**
 
-## Security model
+CommitFlow is a Chrome Manifest V3 extension that automatically synchronizes your **Accepted** competitive programming solutions directly to your personal GitHub repository. It organizes your solutions with structured directory layouts, tracks your recent sync activity, and preserves every unique submission without overwriting previous attempts.
 
-The extension never includes a GitHub client secret or personal access token. `server/index.mjs` is a deployable OAuth backend that keeps the GitHub OAuth access token on the server. After the browser OAuth flow, it gives the extension a random, one-hour opaque session token held in `chrome.storage.session`; that token can only call the backend proxy.
+---
 
-The OAuth flow checks a random state, uses one-time authorization handoffs, and restricts the final callback to the extension's `chromiumapp.org` redirect URL. Deployed backends require HTTPS. The only HTTP exception is the exact local-development origin `http://localhost:8787`. The GitHub OAuth application needs the `repo` scope only because users may select private repositories and CommitFlow must create and write repository contents. The Chrome extension requests `storage`, `identity`, and `alarms`; access to the selected backend is requested at sign-in.
+## ✨ Features
 
-## Setup
+- **Automatic Live Capture**: Detects when your submission verdict turns **Accepted** and synchronizes code and metadata instantly in the background.
+- **5 Major Competitive Programming Platforms**: Out-of-the-box support for **LeetCode**, **Codeforces**, **CodeChef**, **CSES**, and **AtCoder**.
+- **Structured Hierarchy**: Intelligently groups solutions by topic, difficulty, rating, or contest slug.
+- **Multi-Solution Preservation**: Each file path embeds the unique submission ID, ensuring multiple accepted approaches or optimizations for the same problem are preserved.
+- **Durable Queue & Auto-Retry**: Built on `chrome.storage.local` with concurrency serialization, duplicate suppression, and exponential backoff retry for transient network or GitHub API errors (up to 5 attempts).
+- **Recent Activity Feed**: Popup includes an activity log tracking your last 20 synced submissions with language tags, timestamps, and direct problem links.
+- **Zero-Secret Security Model**: The extension stores no GitHub client secrets or personal access tokens (PATs). All GitHub interactions go through an authenticated OAuth backend using opaque, revokable session tokens.
+- **LeetCode Historical Import**: Import previous accepted submissions directly from an authenticated LeetCode tab with built-in rate-limiting and pagination.
+- **Modern, Accessible UI**: Compact popup interface with real-time status banners, repository management, platform indicators, and custom issue templates.
 
-1. Create a GitHub OAuth App. For deployment, its authorization callback URL must be `https://YOUR_BACKEND/v1/oauth/github/callback`. For local development, set it to `http://localhost:8787/v1/oauth/github/callback`.
-2. Deploy `server/index.mjs` behind HTTPS with Node 20+. Set `PUBLIC_BASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and optionally `PORT` in the deployment's secret manager. The included in-memory session store is suitable only for a single-process development deployment; use a shared TTL-backed store in production.
-3. For local development, provide the values through your shell (never the extension source or committed files), then run the backend:
+---
 
-   ```powershell
+## 🌐 Supported Platforms & Organization
+
+Solutions are committed using predictable folder paths and file extensions based on platform metadata:
+
+| Platform | Directory Structure | Category Source |
+| :--- | :--- | :--- |
+| **LeetCode** | `LeetCode/<topic-or-difficulty>/<problemId>-<title>-<submissionId>.<ext>` | Alphabetically first topic tag from GraphQL; fallback to difficulty; fallback to `Uncategorized` |
+| **Codeforces** | `Codeforces/<rating>/<problemId>-<title>-<submissionId>.<ext>` | Official problem rating from Codeforces problemset; fallback to `Unrated` |
+| **CodeChef** | `CodeChef/<contest>/<problemId>-<title>-<submissionId>.<ext>` | Contest code or `Practice` |
+| **CSES** | `CSES/<topic>/<problemId>-<title>-<submissionId>.<ext>` | Problem category from CSES problemset (e.g. `Dynamic Programming`, `Graph Algorithms`); fallback to `Uncategorized` |
+| **AtCoder** | `AtCoder/<contest>/<problemId>-<title>-<submissionId>.<ext>` | Contest slug (e.g. `abc320`, `arc160`) or `Practice` |
+
+### Language & Extension Detection
+
+File extensions are automatically resolved based on the submission language:
+- **C++**: `.cpp` (`C++17`, `C++20`, `GNU C++`, etc.)
+- **Python**: `.py` (`Python 3`, `PyPy 3`, etc.)
+- **Java**: `.java` (`Java 8`, `Java 17`, `Java 21`, etc.)
+- **C**: `.c` (`C`, `GNU C`)
+- **JavaScript / TypeScript**: `.js` / `.ts`
+- **Rust**: `.rs`
+- **Go**: `.go`
+- **Kotlin**: `.kt`
+- *Fallback*: `.txt`
+
+---
+
+## 🚀 Installation from Source
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (v20 or later recommended)
+- `npm` (v10 or later)
+- Google Chrome (or any Chromium-based browser supporting Manifest V3)
+
+### 1. Clone & Install Dependencies
+
+```bash
+git clone https://github.com/SPDOCTORS/CodeSync.git
+cd CodeSync
+npm install
+```
+
+### 2. Build the Extension
+
+```bash
+npm run build
+```
+
+This compiles TypeScript (`tsc --noEmit`) and packages the production assets via Vite into the `dist/` directory.
+
+### 3. Load into Chrome
+
+1. Open Google Chrome and navigate to `chrome://extensions/`.
+2. Toggle **Developer mode** on in the top-right corner.
+3. Click **Load unpacked** in the top-left corner.
+4. Select the `dist/` folder inside the project root.
+5. The **CommitFlow** icon will now appear in your browser extensions toolbar.
+
+---
+
+## 🔑 GitHub Setup & Configuration
+
+CommitFlow connects to GitHub via OAuth to push code directly to your repositories.
+
+### Quick Start (Default Hosted Backend)
+
+By default, CommitFlow is preconfigured to use the secure production backend: `https://code-sync-rho-brown.vercel.app`.
+
+1. Click the CommitFlow extension icon in your Chrome toolbar.
+2. In the popup (or via **Settings** in the context menu / options page), click **Connect GitHub** / **Sign in with GitHub**.
+3. Authorize the application on GitHub.
+4. Once connected, choose your target repository:
+   - Click **Create repo** to automatically initialize a private `Competitive-Programming` repository with a README.
+   - Click **Select existing** to choose from your personal repositories.
+   - Or enter any repository in `owner/repo` format and click **Use**.
+
+---
+
+### Self-Hosting the OAuth Backend (Optional)
+
+If you prefer to host your own backend:
+
+1. **Create a GitHub OAuth App**:
+   - Go to GitHub **Settings > Developer settings > OAuth Apps > New OAuth App**.
+   - Set **Authorization callback URL** to:
+     - `https://YOUR_DOMAIN/v1/oauth/github/callback` (production)
+     - `http://localhost:8787/v1/oauth/github/callback` (local development)
+2. **Environment Variables**:
+   - `PUBLIC_BASE_URL`: Base URL of your backend (e.g. `https://commitflow.example.com` or `http://localhost:8787`).
+   - `GITHUB_CLIENT_ID`: Your GitHub OAuth App Client ID.
+   - `GITHUB_CLIENT_SECRET`: Your GitHub OAuth App Client Secret.
+   - `REDIS_URL` *(Optional)*: Redis connection string (e.g. Upstash Redis) for persistent session caching. Defaults to memory storage when omitted.
+   - `PORT` *(Optional)*: Server port (defaults to `8787`).
+3. **Run Locally**:
+   ```bash
+   # Windows PowerShell example
    $env:PUBLIC_BASE_URL = 'http://localhost:8787'
-   $env:GITHUB_CLIENT_ID = 'your-oauth-client-id'
-   $env:GITHUB_CLIENT_SECRET = 'your-oauth-client-secret'
+   $env:GITHUB_CLIENT_ID = 'your-client-id'
+   $env:GITHUB_CLIENT_SECRET = 'your-client-secret'
    npm run server
    ```
-
-   In a separate terminal, verify that the backend is ready before starting OAuth:
-
-   ```powershell
+4. **Verify Health**:
+   ```bash
    npm run server:check
    ```
+5. In the extension **Settings**, enter your backend URL under **Authorization server** and save.
 
-   The readiness check calls only `GET /healthz`; it does not send OAuth credentials or GitHub tokens. The backend's sessions are intentionally in memory, so restart it after changing the client secret and then sign in again in the extension. Existing local queue entries are preserved.
+---
 
-   `.env` and `.env.*` are ignored by Git. If you use a local environment file, load it through your deployment or shell tooling; `server/index.mjs` intentionally does not read secrets from extension assets.
-4. Run `npm install` and `npm run build` in this folder.
-5. Load `dist` from `chrome://extensions` with Developer mode enabled.
-6. Open CommitFlow settings, enter the HTTPS backend URL, or the exact local development URL `http://localhost:8787`, and choose **Sign in with GitHub**. Then create the private `Competitive-Programming` repository or select an existing one. Repository input accepts `owner/repo`, `https://github.com/owner/repo`, and `.git` URL variants.
+## 🔄 Automatic Sync & Queue Engine
 
-### Development connection test
+### How It Works
 
-When the authorization server is exactly `http://localhost:8787`, Settings shows **Test GitHub Commit**. It is available only after an explicit click and only when the configured repository is `SPDOCTORS/Competitive-Programming`. It creates `CodeSync-Tests/connection-test.txt` containing `CodeSync GitHub integration test`. The request uses the existing backend session; no credentials are added to the extension. CommitFlow records a successful test locally and never provides a file SHA, so it cannot overwrite an existing test file or any solution.
+```mermaid
+flowchart LR
+    A["CP Platforms (LeetCode, CF, etc.)"] -->|"Accepted Verdict"| B["Content Script"]
+    B -->|"CODESYNC_QUEUE_SUBMISSION"| C["Background Worker (Queue)"]
+    C -->|"Serialize & Retry"| D["OAuth Backend Proxy"]
+    D -->|"GitHub Contents API"| E["GitHub Repository"]
+```
 
-## Synchronization behavior
+1. **Detection**: Platform content scripts monitor live judging via mutation observers, status polls, or same-origin detail APIs.
+2. **Filtering**: Only submissions with an **Accepted** verdict and valid source code are captured. Rejected, Pending, and Wrong Answer submissions are safely skipped.
+3. **Deduplication**: Each submission is registered by its unique key (`<platform>:<submissionId>`). Re-submitting the same submission ID will not create duplicate commits.
+4. **Queue Processing**: Submissions are committed sequentially to prevent Git tree SHA race conditions. If an identical file exists, the existing Git blob SHA is retrieved before updating.
+5. **Exponential Backoff**: If GitHub API limits or network drops occur, items retry with exponential backoff up to 5 attempts. Items that fail permanently remain inspectable in the popup with a **Retry failed submissions** option.
 
-Future permitted adapters submit a verified `CODESYNC_QUEUE_SUBMISSION` message to the service worker. Each Accepted submission is committed independently with platform, problem name, language, and submission ID in the commit message. The path includes the submission ID, so multiple accepted solutions for the same problem are preserved. Queue entries and completed submission keys are stored locally; duplicate platform/submission-ID pairs are ignored. Transient failures retry with exponential backoff up to five attempts, and the popup reports pending, retrying, and error status.
+---
 
-Files use these paths:
+## 📊 Recent Activity Feed
 
-- `LeetCode/<primary-topic>/<problem-id>-<title>-<submission-id>.<ext>`
-- `Codeforces/<rating>/<problem-id>-<title>-<submission-id>.<ext>`
-- `CodeChef/<contest>/<problem-id>-<title>-<submission-id>.<ext>`
-- `AtCoder/<contest>/<problem-id>-<title>-<submission-id>.<ext>`
-- `CSES/<topic>/<problem-id>-<title>-<submission-id>.<ext>`
+CommitFlow maintains a local history of your latest synchronization activity:
 
-## LeetCode adapter
+- Click **View activity →** in the popup to review your recent submissions.
+- Keeps track of up to **20 most recent** completed solutions.
+- Displays the problem title, platform badge, language, submission timestamp, and sync timestamp.
+- Direct external links to open the original problem statement on the platform.
 
-The LeetCode content script observes the active submission-detail route. It obtains a candidate submission only from that route, then uses LeetCode's same-origin `submissionDetails` GraphQL operation while LeetCode is judging it. It queues code only after LeetCode reports `Accepted`. This avoids the REST `/submissions/detail/<id>/` endpoint, which may reject extension fetches with HTTP 403. The GraphQL result provides source, language, problem metadata, and topic tags through the signed-in browser session; the adapter chooses the alphabetically first tag by name, with `Uncategorized` for missing metadata.
+---
 
-Every queued LeetCode path is `LeetCode/<primary-topic>/<problem-id>-<title>-<submission-id>.<ext>`. The existing background queue deduplicates the platform/submission-ID pair, so distinct Accepted resubmissions remain separate.
+## 🔒 Privacy & Security Model
 
-To import history, first enable and save **Enable historical import from the signed-in LeetCode tab**, open an authenticated `leetcode.com` tab, then click **Import LeetCode history**. The adapter pages through submissions 20 at a time, inspects only Accepted entries, and delays requests by at least 750 ms. Progress and adapter errors appear in the popup status.
+CommitFlow is designed with privacy-first principles:
 
-The import accepts both `leetcode.com` and `www.leetcode.com`. Before importing, CommitFlow sends a ready handshake to the content script. If a matching tab was already open when the extension was reloaded, CommitFlow injects only its packaged LeetCode adapter into that permitted tab and repeats the handshake. If either step fails, Settings explains whether to open or refresh the tab.
+- **No Secrets in Browser**: Neither your GitHub Client Secret nor personal access tokens are stored in the extension.
+- **Opaque Session Tokens**: The browser stores only a high-entropy, random opaque session token in local storage that is verifiable solely by the backend.
+- **Scoped Permissions**: The extension requests only permissions necessary for operation (`storage`, `identity`, `alarms`, `tabs`, `scripting`, and platform hosts).
+- **Zero Telemetry or Analytics**: CommitFlow does not collect, track, or sell your competitive programming code, submissions, browsing habits, or personal information.
+- **Direct to Your GitHub**: Code flows directly from your browser session to your designated GitHub repository via authenticated GitHub REST API calls.
 
-## Current limitations
+---
 
-Automatic submission detection is not implemented for Codeforces, CodeChef, CSES, or AtCoder. LeetCode live capture has unit coverage but has not yet been verified with a real Accepted browser submission. Historical import exists only for LeetCode and runs through the authenticated browser session; it does not bypass access controls, CAPTCHA, or rate limits.
+## 🛠️ Troubleshooting
 
-### Manual browser verification
+| Issue | Cause | Solution |
+| :--- | :--- | :--- |
+| **Submissions not syncing** | Problem was open before extension was installed or updated. | Reload the platform tab (e.g. `leetcode.com`) and ensure your submission verdict reaches **Accepted**. |
+| **"Sign in again" error** | Backend session expired or GitHub OAuth access was revoked. | Open the popup, click **Disconnect** or **Settings**, and re-authenticate via **Sign in with GitHub**. |
+| **Repository 404 / 403 error** | Configured repository is missing or account lacks write permissions. | Open Settings, verify the target `owner/repo`, and ensure your GitHub account has write access to the repository. |
+| **LeetCode import stopped** | Tab closed or network rate-limit reached. | Keep the authenticated LeetCode tab open in your browser while the historical import is running. CommitFlow enforces a minimum 750ms delay between pages. |
+| **Submissions stuck in "retrying"** | Temporary GitHub API disruption or network drop. | Verify internet connectivity and click **Retry queue** in the popup to re-trigger synchronization. |
 
-1. Rebuild with `npm run build`, reload the unpacked extension, and sign in through Settings.
-2. Open an authenticated `https://leetcode.com` tab and submit a small solution that reaches Accepted.
-3. Keep the result or submission-detail page open until the popup reports a synchronization status. Confirm a single new file appears under `LeetCode/<topic>/` and that the filename and commit contain the submission ID.
-4. Submit the same problem again with a distinct Accepted submission ID; it should create a separate file. Refreshing the same detail page must not create another file.
-5. Submit a Wrong Answer and confirm no file is created.
-6. Optionally enable historical import in Settings and use the explicit import button. Keep the LeetCode tab open and observe popup progress.
+---
 
-If a detail lookup fails, open Chrome DevTools on the normal submission-detail page, reload it, and filter Network by `graphql`. Confirm the page requests `submissionDetails` from `https://leetcode.com/graphql/` and inspect only request names and status codes; do not copy cookies, authorization values, or other session data. The extension treats a failed historical item as skipped and continues the import.
+## 🤝 Contributing & Development
 
-## Verification
+Contributions, bug reports, and suggestions are welcome!
 
-`npm run build` runs TypeScript checking and the production Vite build. There is no test runner in the existing project, so no automated test suite was available to execute.
+### Testing & Verification
+
+Before submitting code changes, run the complete verification suite:
+
+```bash
+# Run all automated tests (231 tests)
+npm test
+
+# Run TypeScript type check and production build
+npm run build
+```
+
+### Issue Templates
+
+When reporting issues or suggesting enhancements, please use the provided GitHub templates:
+- [Report a Bug](https://github.com/SPDOCTORS/CodeSync/issues/new?template=bug_report.md&labels=bug&title=%5BBug%5D%3A+)
+- [Suggest a Feature](https://github.com/SPDOCTORS/CodeSync/issues/new?template=feature_request.md&labels=enhancement&title=%5BFeature%5D%3A+)
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
+Built with care by **[Senthil Kumar](https://github.com/SPDOCTORS)** ([LinkedIn](https://www.linkedin.com/in/senthil-kumar-76804730b/)).
