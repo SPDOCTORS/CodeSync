@@ -76,6 +76,7 @@ export default function App() {
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [customRepo, setCustomRepo] = useState('');
   const [notice, setNotice] = useState('');
+  const [importingLeetCode, setImportingLeetCode] = useState(false);
 
   useEffect(() => {
     void chrome.storage.local.get(['settings', 'syncStatus', 'backendSession', 'recentActivity']).then(data => {
@@ -207,6 +208,19 @@ export default function App() {
     }
   }
 
+  async function handleImportLeetCode() {
+    setImportingLeetCode(true);
+    setNotice('Starting LeetCode import…');
+    if (!settings.importHistory) {
+      const nextSettings = { ...settings, importHistory: true };
+      setSettings(nextSettings);
+      await chrome.storage.local.set({ settings: nextSettings });
+    }
+    const reply = await send('CODESYNC_IMPORT_LEETCODE_HISTORY');
+    setNotice(reply.message ?? reply.error ?? 'LeetCode history import failed.');
+    setImportingLeetCode(false);
+  }
+
   const counts = status.counts ?? { pending: status.pending, retrying: 0, committed: 0, permanentlyFailed: 0 };
 
   const platforms = [
@@ -312,16 +326,6 @@ export default function App() {
             <span>Connect GitHub</span>
           </button>
         </div>
-
-        {/* Footer */}
-        <footer className="popup-footer">
-          <button
-            className="btn-link"
-            onClick={() => chrome.runtime.openOptionsPage()}
-          >
-            ⚙️ Advanced settings
-          </button>
-        </footer>
       </main>
     );
   }
@@ -347,56 +351,83 @@ export default function App() {
           <span className="pill pill-version">{recentActivity.length}</span>
         </header>
 
+        {notice && (
+          <div className="alert-notice">
+            <span>{notice}</span>
+            <button className="notice-dismiss" onClick={() => setNotice('')}>×</button>
+          </div>
+        )}
+
         {recentActivity.length === 0 ? (
           <div className="activity-empty-state">
             <div className="empty-title">No recent activity yet</div>
             <p className="empty-desc">
               Accepted solutions from LeetCode, Codeforces, CodeChef, CSES, or AtCoder will appear here after syncing to GitHub.
             </p>
+            <button
+              type="button"
+              className="btn-text btn-subtle-import"
+              disabled={importingLeetCode}
+              onClick={() => void handleImportLeetCode()}
+            >
+              {importingLeetCode ? 'Importing LeetCode history…' : 'Import LeetCode history'}
+            </button>
           </div>
         ) : (
-          <div className="activity-list">
-            {recentActivity.map(item => (
-              <div key={`${item.platform}:${item.submissionId}`} className="activity-item">
-                <div className="activity-item-top">
-                  <div className="activity-problem-wrap">
-                    <span className="activity-status-dot" title="Synced to GitHub" />
-                    {item.problemUrl ? (
-                      <a
-                        href={item.problemUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="activity-problem-link"
-                        title={item.problemTitle}
-                      >
-                        {item.problemTitle}
-                      </a>
-                    ) : (
-                      <span className="activity-problem-title" title={item.problemTitle}>
-                        {item.problemTitle}
-                      </span>
-                    )}
+          <>
+            <div className="activity-list">
+              {recentActivity.map(item => (
+                <div key={`${item.platform}:${item.submissionId}`} className="activity-item">
+                  <div className="activity-item-top">
+                    <div className="activity-problem-wrap">
+                      <span className="activity-status-dot" title="Synced to GitHub" />
+                      {item.problemUrl ? (
+                        <a
+                          href={item.problemUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="activity-problem-link"
+                          title={item.problemTitle}
+                        >
+                          {item.problemTitle}
+                        </a>
+                      ) : (
+                        <span className="activity-problem-title" title={item.problemTitle}>
+                          {item.problemTitle}
+                        </span>
+                      )}
+                    </div>
+                    <span className="activity-time">{formatRelativeTime(item.syncedAt)}</span>
                   </div>
-                  <span className="activity-time">{formatRelativeTime(item.syncedAt)}</span>
+                  <div className="activity-item-bottom">
+                    <span className={`activity-platform-pill pill-${item.platform}`}>
+                      {item.platform === 'leetcode'
+                        ? 'LeetCode'
+                        : item.platform === 'codeforces'
+                          ? 'Codeforces'
+                          : item.platform === 'codechef'
+                            ? 'CodeChef'
+                            : item.platform === 'cses'
+                              ? 'CSES'
+                              : 'AtCoder'}
+                    </span>
+                    <span className="activity-meta-dot">·</span>
+                    <span className="activity-lang">{item.language}</span>
+                  </div>
                 </div>
-                <div className="activity-item-bottom">
-                  <span className={`activity-platform-pill pill-${item.platform}`}>
-                    {item.platform === 'leetcode'
-                      ? 'LeetCode'
-                      : item.platform === 'codeforces'
-                        ? 'Codeforces'
-                        : item.platform === 'codechef'
-                          ? 'CodeChef'
-                          : item.platform === 'cses'
-                            ? 'CSES'
-                            : 'AtCoder'}
-                  </span>
-                  <span className="activity-meta-dot">·</span>
-                  <span className="activity-lang">{item.language}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div className="activity-footer-action">
+              <button
+                type="button"
+                className="btn-text btn-subtle-import"
+                disabled={importingLeetCode}
+                onClick={() => void handleImportLeetCode()}
+              >
+                {importingLeetCode ? 'Importing LeetCode history…' : 'Import LeetCode history'}
+              </button>
+            </div>
+          </>
         )}
       </main>
     );
@@ -625,23 +656,7 @@ export default function App() {
         )}
       </div>
 
-      {/* 5. Advanced */}
-      <div className="card-section card-advanced">
-        <div className="between">
-          <div>
-            <span className="toggle-label">Advanced</span>
-            <p className="toggle-sub">Historical imports, server config & tests</p>
-          </div>
-          <button
-            className="btn-outline btn-sm"
-            onClick={() => chrome.runtime.openOptionsPage()}
-          >
-            Settings →
-          </button>
-        </div>
-      </div>
-
-      {/* 6. Compact Footer */}
+      {/* 5. Compact Footer */}
       <footer className="connected-footer">
         <div className="footer-nav-row">
           <a

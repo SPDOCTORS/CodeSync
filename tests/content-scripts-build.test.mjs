@@ -120,8 +120,14 @@ test('connected popup includes compact footer with GitHub, issue templates, and 
   const appTsx = await read('src/popup/App.tsx');
   const styleCss = await read('src/popup/style.css');
 
-  // Verify connected footer structure below Advanced
-  assert.match(appTsx, /card-advanced[\s\S]*?<footer className="connected-footer">/);
+  // Verify Advanced card and onboarding settings link are removed for regular users
+  assert.doesNotMatch(appTsx, /card-advanced/);
+  assert.doesNotMatch(appTsx, /popup-footer/);
+  assert.match(appTsx, /<footer className="connected-footer">/);
+
+  // Verify historical LeetCode import is accessible from Recent Activity
+  assert.match(appTsx, /handleImportLeetCode/);
+  assert.match(appTsx, /btn-subtle-import/);
 
   // Verify open source link
   assert.match(appTsx, /href="https:\/\/github\.com\/SPDOCTORS\/CodeSync"[^>]*>[\s\S]*?Open source on GitHub/);
@@ -149,9 +155,9 @@ test('connected popup includes compact footer with GitHub, issue templates, and 
   assert.match(styleCss, /\.footer-author-row\s*\{[^}]*align-items:\s*center/);
   assert.match(styleCss, /\.footer-nav-row\s*\{[^}]*justify-content:\s*center/);
 
-  // Verify reduced vertical gaps between cards
-  assert.match(styleCss, /\.card-section\s*\{[^}]*margin-bottom:\s*6px/);
-  assert.match(styleCss, /\.status-banner\s*\{[^}]*margin-bottom:\s*6px/);
+  // Verify card spacing
+  assert.match(styleCss, /\.card-section\s*\{[^}]*margin-bottom:\s*7px/);
+  assert.match(styleCss, /\.status-banner\s*\{[^}]*margin-bottom:\s*7px/);
 
   // Verify hidden scrollbars are scoped to popup and global * overrides are removed
   const popupHtml = await read('popup.html');
