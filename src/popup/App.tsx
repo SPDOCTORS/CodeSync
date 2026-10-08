@@ -48,21 +48,19 @@ function formatRelativeTime(dateString: string): string {
   }
 }
 
-function CommitFlowIcon() {
+
+function GitHubIcon({ size = 16 }: { size?: number } = {}) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="6" cy="18" r="3" fill="#10b981" stroke="#059669" strokeWidth="1.5" />
-      <circle cx="18" cy="6" r="3" fill="#10b981" stroke="#059669" strokeWidth="1.5" />
-      <path d="M6 15V9a3 3 0 0 1 3-3h6" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M12 9l3-3-3-3" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
     </svg>
   );
 }
 
-function GitHubIcon() {
+function LinkedInIcon({ size = 14 }: { size?: number } = {}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-      <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76a1.45 1.45 0 1 0 0-2.9 1.45 1.45 0 0 0 0 2.9m1.39 9.74v-8.37H5.07v8.37h2.78z" />
     </svg>
   );
 }
@@ -225,7 +223,8 @@ export default function App() {
         {/* Header */}
         <header className="popup-header">
           <div className="header-brand">
-            <div>
+            <img src="icons/flow-streak.png" alt="CommitFlow" className="brand-logo" />
+            <div className="brand-text">
               <h1>CommitFlow</h1>
               <p className="brand-sub">Competitive programming → GitHub</p>
             </div>
@@ -253,27 +252,31 @@ export default function App() {
           <div className="flow-stage">
             <div className="stage-label">Supported platforms</div>
             <div className="flow-platforms-cluster">
-              <span className="flow-chip chip-leetcode">LeetCode</span>
-              <span className="flow-chip chip-codeforces">Codeforces</span>
-              <span className="flow-chip chip-codechef">CodeChef</span>
-              <span className="flow-chip chip-cses">CSES</span>
-              <span className="flow-chip chip-atcoder">AtCoder</span>
+              <div className="flow-platforms-row">
+                <span className="flow-chip chip-leetcode">LeetCode</span>
+                <span className="flow-chip chip-codeforces">Codeforces</span>
+                <span className="flow-chip chip-codechef">CodeChef</span>
+              </div>
+              <div className="flow-platforms-row">
+                <span className="flow-chip chip-cses">CSES</span>
+                <span className="flow-chip chip-atcoder">AtCoder</span>
+              </div>
             </div>
           </div>
 
           <div className="flow-arrow-wrap">
-            <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
-              <path d="M7 2 C7 12, 14 10, 14 16" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
-              <path d="M21 2 C21 12, 14 10, 14 16" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
-              <line x1="14" y1="2" x2="14" y2="16" stroke="#059669" strokeWidth="2" />
-              <polygon points="10,15 14,22 18,15" fill="#059669" />
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M6 2 C6 12, 12 10, 12 16" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
+              <path d="M18 2 C18 12, 12 10, 12 16" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
+              <line x1="12" y1="2" x2="12" y2="16" stroke="#059669" strokeWidth="2" />
+              <polygon points="8,15 12,22 16,15" fill="#059669" />
             </svg>
           </div>
 
           <div className="flow-stage">
             <div className="flow-node flow-node-hub">
               <div className="node-icon-wrap">
-                <CommitFlowIcon />
+                <img src="icons/flow-streak.png" alt="CommitFlow" className="flow-node-logo" />
               </div>
               <div className="node-info">
                 <span className="node-title">CommitFlow</span>
@@ -404,7 +407,8 @@ export default function App() {
       {/* 1. Header */}
       <header className="popup-header">
         <div className="header-brand">
-          <div>
+          <img src="icons/flow-streak.png" alt="CommitFlow" className="brand-logo" />
+          <div className="brand-text">
             <h1>CommitFlow</h1>
             <p className="brand-sub">Competitive programming → GitHub</p>
           </div>
@@ -636,6 +640,66 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* 6. Compact Footer */}
+      <footer className="connected-footer">
+        <div className="footer-nav-row">
+          <a
+            href="https://github.com/SPDOCTORS/CodeSync"
+            target="_blank"
+            rel="noreferrer"
+            className="footer-nav-link"
+            aria-label="Open source on GitHub"
+          >
+            Open source on GitHub
+          </a>
+          <span className="footer-nav-dot" aria-hidden="true">·</span>
+          <a
+            href="https://github.com/SPDOCTORS/CodeSync/issues/new?template=bug_report.md&labels=bug&title=%5BBug%5D%3A+"
+            target="_blank"
+            rel="noreferrer"
+            className="footer-nav-link"
+            aria-label="Report bug on GitHub"
+          >
+            Report bug
+          </a>
+          <span className="footer-nav-dot" aria-hidden="true">·</span>
+          <a
+            href="https://github.com/SPDOCTORS/CodeSync/issues/new?template=feature_request.md&labels=enhancement&title=%5BFeature%5D%3A+"
+            target="_blank"
+            rel="noreferrer"
+            className="footer-nav-link"
+            aria-label="Suggest feature on GitHub"
+          >
+            Suggest feature
+          </a>
+        </div>
+        <div className="footer-author-row">
+          <span className="footer-author-text">
+            Built by <strong>Senthil Kumar</strong>
+          </span>
+          <div className="footer-social-links">
+            <a
+              href="https://github.com/SPDOCTORS"
+              target="_blank"
+              rel="noreferrer"
+              className="footer-icon-link"
+              aria-label="Senthil Kumar on GitHub"
+            >
+              <GitHubIcon size={14} />
+            </a>
+            <a
+              href="https://www.linkedin.com/in/senthil-kumar-76804730b/"
+              target="_blank"
+              rel="noreferrer"
+              className="footer-icon-link"
+              aria-label="Senthil Kumar on LinkedIn"
+            >
+              <LinkedInIcon size={14} />
+            </a>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }
